@@ -270,5 +270,5 @@ This package is a simplified, GitLab-focused fork of [mocha-junit-reporter](http
 
 MIT
 
-[npm-badge]: https://img.shields.io/npm/v/mocha-gitlab-reporter.svg?maxAge=2592000
+[npm-badge]: https://img.shields.io/npm/v/mocha-gitlab-reporter.svg
 [npm-listing]: https://www.npmjs.com/package/mocha-gitlab-reporter
