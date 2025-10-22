@@ -930,27 +930,6 @@ describe("mocha-junit-reporter", function () {
       });
     });
 
-    it("transforms file paths using regex pattern", function (done) {
-      var reporter = createReporter({
-        filePathSearchPattern: "^build/",
-        filePathReplacePattern: "src/"
-      });
-      var rootSuite = reporter.runner.suite;
-
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_build_path");
-      // Set a file path that starts with build/
-      test.file = "build/modules/memberData/tasks/transfer/bulkImportEmployees/bulkImportEmployees.spec.js";
-      suite1.addTest(test);
-
-      runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
-        // File path should have "build/" replaced with "src/"
-        expect(testcase._attr.file).to.equal("src/modules/memberData/tasks/transfer/bulkImportEmployees/bulkImportEmployees.spec.js");
-
-        done();
-      });
-    });
 
     it("does not transform file paths when pattern is not configured", function (done) {
       var reporter = createReporter();
@@ -989,20 +968,162 @@ describe("mocha-junit-reporter", function () {
       });
     });
 
-    it("throws error when only filePathSearchPattern is specified", function () {
-      expect(function () {
-        createReporter({
-          filePathSearchPattern: "^build/"
-        });
-      }).to.throw("filePathSearchPattern is specified but filePathReplacePattern is missing. Both must be provided together.");
+    it("transforms file paths using multiple pattern pairs", function (done) {
+      var reporter = createReporter({
+        filePathTransforms: "[{search: '^build/'| replace: 'src/'}|{search: '\\.spec\\.js$'| replace: '.js'}]"
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_with_multiple_transforms");
+      // Set a file path that will be transformed by both patterns
+      test.file = "build/modules/memberData/tasks/transfer.spec.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // File path should have both transformations applied
+        expect(testcase._attr.file).to.equal("src/modules/memberData/tasks/transfer.js");
+
+        done();
+      });
     });
 
-    it("throws error when only filePathReplacePattern is specified", function () {
+    it("applies transformations sequentially", function (done) {
+      var reporter = createReporter({
+        filePathTransforms: "[{search: 'build'| replace: 'src'}|{search: 'src/'| replace: 'source/'}]"
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_sequential_transforms");
+      test.file = "build/test.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // First transform: "build" -> "src" = "src/test.js"
+        // Second transform: "src/" -> "source/" = "source/test.js"
+        expect(testcase._attr.file).to.equal("source/test.js");
+
+        done();
+      });
+    });
+
+    it("supports single transform pattern", function (done) {
+      var reporter = createReporter({
+        filePathTransforms: "{search: '^build/'| replace: 'src/'}"
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_with_single_pattern");
+      test.file = "build/test.spec.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        expect(testcase._attr.file).to.equal("src/test.spec.js");
+
+        done();
+      });
+    });
+
+    it("throws error when filePathTransforms is not a string", function () {
       expect(function () {
         createReporter({
-          filePathReplacePattern: "src/"
+          filePathTransforms: [
+            { search: "^build/", replace: "src/" }
+          ]
         });
-      }).to.throw("filePathReplacePattern is specified but filePathSearchPattern is missing. Both must be provided together.");
+      }).to.throw("filePathTransforms must be a string value");
+    });
+
+    it("throws error when filePathTransforms has incomplete pair", function () {
+      expect(function () {
+        createReporter({
+          filePathTransforms: "[{search: '^build/'| replace: 'src/'}|{search: 'test'}]" // missing replace
+        });
+      }).to.throw("filePathTransforms[1] must have both 'search' and 'replace' properties.");
+    });
+
+    it("throws error when single transform is incomplete", function () {
+      expect(function () {
+        createReporter({
+          filePathTransforms: "{search: '^build/'}" // missing replace
+        });
+      }).to.throw("filePathTransforms must have both 'search' and 'replace' properties.");
+    });
+
+    it("supports JSON string format for filePathTransforms", function (done) {
+      var reporter = createReporter({
+        filePathTransforms: JSON.stringify([
+          { search: "^build/", replace: "src/" },
+          { search: "\\.spec\\.js$", replace: ".js" }
+        ])
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_json_string");
+      test.file = "build/test.spec.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        expect(testcase._attr.file).to.equal("src/test.js");
+
+        done();
+      });
+    });
+
+    it("throws error when JSON string is invalid", function () {
+      expect(function () {
+        createReporter({
+          filePathTransforms: "not valid json"
+        });
+      }).to.throw(/filePathTransforms must be valid JSON/);
+    });
+
+    it("supports pipe-delimited format for CLI usage", function (done) {
+      // This format is easier for CLI where commas can be problematic
+      var reporter = createReporter({
+        filePathTransforms: "[{search: '^build/'| replace: 'src/'}|{search: '\\.spec\\.js$'| replace: '.js'}]"
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_pipe_delimited");
+      test.file = "build/test.spec.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        expect(testcase._attr.file).to.equal("src/test.js");
+
+        done();
+      });
+    });
+
+    it("supports pipe-delimited format with spaces", function (done) {
+      var reporter = createReporter({
+        filePathTransforms: "[{search: '^build/' | replace: 'src/'} | {search: '^src/' | replace: 'src2/'}]"
+      });
+      var rootSuite = reporter.runner.suite;
+
+      var suite1 = Suite.create(rootSuite, "Test Suite");
+      var test = createTest("test_pipe_with_spaces");
+      test.file = "build/test.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // First: "build/test.js" -> "src/test.js"
+        // Second: "src/test.js" -> "src2/test.js"
+        expect(testcase._attr.file).to.equal("src2/test.js");
+
+        done();
+      });
     });
   });
 });

@@ -77,60 +77,7 @@ The reporter automatically generates XML with the correct structure for GitLab:
 - `testcase name` = individual test name (e.g., "should create user")
 - Suite titles are always separated by `.` for clean display in GitLab
 - Full suite titles are always included (nested suite hierarchy)
-
-### Relative File Paths
-
-File paths are automatically included in test cases and converted to be relative to your repository root. This ensures proper navigation in GitLab CI. If Mocha provides file information for your tests, it will be included in the `file` attribute of each `<testcase>` element.
-
-### File Path Transformation
-
-If your test files are built/compiled to a different directory, you can use regex to transform the file paths in the report. This is useful when you want the report to reference source files instead of compiled files.
-
-**Note:** Both `filePathSearchPattern` and `filePathReplacePattern` must be specified together. If you specify one without the other, an error will be thrown.
-
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "filePathSearchPattern=^build/",
-        "filePathReplacePattern=src/",
-    ]
-});
-```
-
-This will transform paths like:
-- `build/test/example.spec.js`
-
-To:
-- `src/test/example.spec.js`
-
-You can also use environment variables:
-
-```shell
-$ FILE_PATH_SEARCH_PATTERN='^build/' FILE_PATH_REPLACE_PATTERN='src/' mocha test --reporter mocha-gitlab-reporter
-```
-
-### Attachments Support
-
-You can attach files and screenshots using the [JUnit Attachments Plugin](https://wiki.jenkins.io/display/JENKINS/JUnit+Attachments+Plugin) format:
-
-```javascript
-it('should display login page', function() {
-  // Your test code
-  this.test.attachments = ['/absolute/path/to/screenshot.png'];
-});
-```
-
-Enable attachments in your reporter options:
-
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "attachments=true"
-    ]
-});
-```
+- file paths are automatically included in test cases and converted to be relative to the current working directory
 
 ### Console Reporter
 
@@ -178,9 +125,87 @@ Enable outputs in your reporter options:
 ```javascript
 var mocha = new Mocha({
     reporter: 'mocha-gitlab-reporter',
-    reporterOptions: {
-        outputs: true
-    }
+    reporterOptions: [
+        "outputs=true"
+    ]
+});
+```
+
+### File Path Transformation
+
+If your test files are built/compiled to a different directory, you can use regex to transform the file paths in the report. This is useful when you want the report to reference source files instead of compiled files.
+
+You can apply multiple transformations sequentially using the `filePathTransforms` option. This is useful when you need to perform multiple replacements on file paths.
+
+**Note:** The `filePathTransforms` value must be a **string**. Use the pipe-delimited format for easier CLI usage.
+
+#### Single Transformation
+
+```javascript
+var mocha = new Mocha({
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms={search: '^build/'| replace: 'src/'}"
+    ]
+});
+```
+
+#### Multiple Transformations
+
+```javascript
+var mocha = new Mocha({
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
+    ]
+});
+```
+
+This will transform paths like:
+- `build/modules/example.spec.js`
+
+To:
+- `src/modules/example.test.ts`
+
+The transformations are applied in order, so the output of the first transformation becomes the input to the second transformation.
+
+#### Using with `.mocharc.js` configuration file
+
+```javascript
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
+  reporterOptions: [
+    "mochaFile=./test-results.xml",
+    "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
+  ]
+};
+```
+
+#### Using via command line
+
+```shell
+$ mocha test --reporter mocha-gitlab-reporter --reporter-options 'filePathTransforms=[{"search":"^build/","replace":"src/"}]'
+```
+
+### Attachments Support
+
+You can attach files and screenshots using the [JUnit Attachments Plugin](https://wiki.jenkins.io/display/JENKINS/JUnit+Attachments+Plugin) format:
+
+```javascript
+it('should display login page', function() {
+  // Your test code
+  this.test.attachments = ['/absolute/path/to/screenshot.png'];
+});
+```
+
+Enable attachments in your reporter options:
+
+```javascript
+var mocha = new Mocha({
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "attachments=true"
+    ]
 });
 ```
 
@@ -194,8 +219,7 @@ var mocha = new Mocha({
 | consoleReporter         | `null`               | Name of a Mocha reporter to also output to console (e.g., `"spec"`, `"dot"`, `"nyan"`)           |
 | outputs                 | `false`              | If set to truthy value will include console output and console error output                      |
 | attachments             | `false`              | If set to truthy value will attach files to report in JUnit Attachments Plugin format            |
-| filePathSearchPattern   | `null`               | Regex pattern to search for in file paths (e.g., `"^build/"`)                                    |
-| filePathReplacePattern  | `null`               | Replacement string for matched file paths (e.g., `"src/"`)                                       |
+| filePathTransforms      | `null`               | String with pipe-delimited transformations (e.g., `"[{search: '^build/'| replace: 'src/'}]"`) |
 
 ### Results Report Filename Placeholders
 

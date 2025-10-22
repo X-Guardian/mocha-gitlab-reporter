@@ -57,28 +57,69 @@ function configureDefaults(options) {
     "CONSOLE_REPORTER",
     null
   );
-  config.filePathSearchPattern = getSetting(
-    config.filePathSearchPattern,
-    "FILE_PATH_SEARCH_PATTERN",
-    null
-  );
-  config.filePathReplacePattern = getSetting(
-    config.filePathReplacePattern,
-    "FILE_PATH_REPLACE_PATTERN",
-    null
-  );
 
-  // Validate that both filePathSearchPattern and filePathReplacePattern are specified together
-  if (config.filePathSearchPattern && !config.filePathReplacePattern) {
-    throw new Error(
-      "filePathSearchPattern is specified but filePathReplacePattern is missing. Both must be provided together."
-    );
+  // Normalize to array of pattern pairs
+  var transforms = [];
+
+  // Check if filePathTransforms string is provided
+  if (config.filePathTransforms) {
+    var filePathTransforms = config.filePathTransforms;
+
+    // filePathTransforms must be a string
+    if (typeof filePathTransforms !== 'string') {
+      throw new Error(
+        "filePathTransforms must be a string value. Use pipe-delimited format like: \"[{search: '^build/'| replace: 'src/'}]\""
+      );
+    }
+
+    // Replace pipes with commas to support CLI-friendly format
+    // Example: "[{search: '^build/'| replace: 'src/'}|{search: '^src/'| replace: 'src2/'}]"
+    // becomes: "[{search: '^build/', replace: 'src/'},{search: '^src/', replace: 'src2/'}]"
+    filePathTransforms = filePathTransforms.replace(/\|\s*/g, ',');
+
+    // Convert shorthand property names to quoted names for valid JSON
+    // Replace 'search:' with '"search":' and 'replace:' with '"replace":'
+    filePathTransforms = filePathTransforms.replace(/(\{|\s)search:/g, '$1"search":');
+    filePathTransforms = filePathTransforms.replace(/(\{|\s|,)replace:/g, '$1"replace":');
+
+    // Convert single quotes to double quotes for string values
+    // Handle backslashes properly - they need to be escaped for JSON
+    filePathTransforms = filePathTransforms.replace(/:\s*'([^']*)'/g, function(match, content) {
+      // Escape backslashes for JSON (\ becomes \\)
+      var escaped = content.replace(/\\/g, '\\\\');
+      return ': "' + escaped + '"';
+    });
+
+    try {
+      filePathTransforms = JSON.parse(filePathTransforms);
+    } catch (e) {
+      throw new Error(
+        "filePathTransforms must be valid JSON. Error: " + e.message
+      );
+    }
+
+    if (Array.isArray(filePathTransforms)) {
+      // Array of transforms provided
+      filePathTransforms.forEach(function(transform, index) {
+        if (!transform.search || !transform.replace) {
+          throw new Error(
+            "filePathTransforms[" + index + "] must have both 'search' and 'replace' properties."
+          );
+        }
+      });
+      transforms = filePathTransforms;
+    } else if (typeof filePathTransforms === 'object') {
+      // Single object provided, convert to array
+      if (!filePathTransforms.search || !filePathTransforms.replace) {
+        throw new Error(
+          "filePathTransforms must have both 'search' and 'replace' properties."
+        );
+      }
+      transforms = [filePathTransforms];
+    }
   }
-  if (config.filePathReplacePattern && !config.filePathSearchPattern) {
-    throw new Error(
-      "filePathReplacePattern is specified but filePathSearchPattern is missing. Both must be provided together."
-    );
-  }
+
+  config.filePathTransforms = transforms;
 
   debug("Config", config);
   return config;
@@ -336,10 +377,12 @@ class MochaGitLabReporter {
       if (path.isAbsolute(filePath)) {
         filePath = path.relative(process.cwd(), filePath);
       }
-      // Apply regex transformation if configured
-      if (this._options.filePathSearchPattern && this._options.filePathReplacePattern) {
-        var regex = new RegExp(this._options.filePathSearchPattern);
-        filePath = filePath.replace(regex, this._options.filePathReplacePattern);
+      // Apply regex transformations if configured
+      if (this._options.filePathTransforms && this._options.filePathTransforms.length > 0) {
+        this._options.filePathTransforms.forEach(function(transform) {
+          var regex = new RegExp(transform.search);
+          filePath = filePath.replace(regex, transform.replace);
+        });
       }
       testcase.testcase[0]._attr.file = filePath;
     }
