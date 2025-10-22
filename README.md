@@ -6,7 +6,7 @@ A GitLab CI compatible JUnit XML reporter for Mocha. Generates test reports that
 
 ## Why This Reporter?
 
-GitLab CI has specific requirements for JUnit XML format to properly display test results. This reporter is specifically designed to generate XML that GitLab CI expects, ensuring your test results display correctly with:
+GitLab CI has specific requirements for JUnit XML format to properly display test results. This reporter is specifically designed to generate XML that GitLab CI expects, ensuring the test results display correctly with:
 
 - Test names and suite hierarchies properly formatted
 - Relative file paths for easy navigation
@@ -29,39 +29,16 @@ $ mocha test --reporter mocha-gitlab-reporter
 
 This will output a results file at `./test-results.xml`.
 
-You may optionally declare an alternate location for the results XML file by setting the environment variable `MOCHA_FILE` or specifying `mochaFile` in `reporterOptions`:
-
-```shell
-$ MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-gitlab-reporter
-```
-
-or
-
-```shell
-$ mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
-```
-
-or
-
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "mochaFile=./path_to_your/file.xml"
-    ]
-});
-```
-
 ## GitLab CI Configuration
 
-Add this to your `.gitlab-ci.yml`:
+Example `.gitlab-ci.yml` configuration:
 
 ```yaml
 test:
   stage: test
   script:
     - npm install
-    - npm test
+    - mocha test --reporter mocha-gitlab-reporter
   artifacts:
     when: always
     reports:
@@ -77,19 +54,21 @@ The reporter automatically generates XML with the correct structure for GitLab:
 - `testcase name` = individual test name (e.g., "should create user")
 - Suite titles are always separated by `.` for clean display in GitLab
 - Full suite titles are always included (nested suite hierarchy)
-- file paths are automatically included in test cases and converted to be relative to the current working directory
+- File paths are automatically included in test cases and converted to be relative to the current working directory
 
 ### Console Reporter
 
-By default, this reporter only generates the XML file without console output. If you want to see test results in the console while also generating the GitLab XML report, you can enable a console reporter:
+By default, this reporter only generates the XML file without console output. To enable console output, set the `consoleReporter` option:
+
+Using a `.mocharc.js` configuration file:
 
 ```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
     reporterOptions: [
         "consoleReporter=spec"
     ]
-});
+};
 ```
 
 Or via command line:
@@ -104,7 +83,70 @@ Or via environment variable:
 $ CONSOLE_REPORTER=spec mocha test --reporter mocha-gitlab-reporter
 ```
 
-You can use any built-in Mocha reporter name (`spec`, `dot`, `nyan`, `tap`, `landing`, `list`, `progress`, `json`, `min`, etc.) or a custom reporter module.
+Any built-in Mocha reporter name (`spec`, `dot`, `nyan`, `tap`, `landing`, `list`, `progress`, `json`, `min`, etc.) or a custom reporter module can be used.
+
+### Results Report Filename
+
+An alternate location for the results XML file can be specified by setting the `mochaFile` option:
+
+Using a `.mocharc.js` configuration file:
+
+```javascript
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "mochaFile=./path_to_your/file.xml"
+    ]
+};
+```
+
+Or via command line:
+
+```shell
+$ mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+```
+
+Or via environment variable:
+
+```shell
+$ MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+```
+
+### File Path Transformation
+
+If your test files are built/compiled to a different directory, you can use regex to transform the file paths in the report. This is useful when you want the report to reference source files instead of compiled files.
+
+**Note:** The `filePathTransforms` value must be a **string**. Use the pipe-delimited format for easier CLI usage.
+
+#### Single Transformation
+
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms={search: '^build/'| replace: 'src/'}"
+    ]
+});
+```
+
+#### Multiple Transformations
+
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
+    ]
+});
+```
+
+This will transform paths like:
+- `build/modules/example.spec.js`
+
+To:
+- `src/modules/example.test.ts`
+
+The transformations are applied in order, so the output of the first transformation becomes the input to the second transformation.
 
 ### Console Output Capture
 
@@ -122,70 +164,17 @@ it('should report error', function() {
 
 Enable outputs in your reporter options:
 
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "outputs=true"
-    ]
-});
-```
-
-### File Path Transformation
-
-If your test files are built/compiled to a different directory, you can use regex to transform the file paths in the report. This is useful when you want the report to reference source files instead of compiled files.
-
-You can apply multiple transformations sequentially using the `filePathTransforms` option. This is useful when you need to perform multiple replacements on file paths.
-
-**Note:** The `filePathTransforms` value must be a **string**. Use the pipe-delimited format for easier CLI usage.
-
-#### Single Transformation
-
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "filePathTransforms={search: '^build/'| replace: 'src/'}"
-    ]
-});
-```
-
-#### Multiple Transformations
-
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
-    ]
-});
-```
-
-This will transform paths like:
-- `build/modules/example.spec.js`
-
-To:
-- `src/modules/example.test.ts`
-
-The transformations are applied in order, so the output of the first transformation becomes the input to the second transformation.
-
-#### Using with `.mocharc.js` configuration file
+Using a `.mocharc.js` configuration file:
 
 ```javascript
 module.exports = {
   reporter: 'mocha-gitlab-reporter',
-  reporterOptions: [
-    "mochaFile=./test-results.xml",
-    "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
-  ]
+    reporterOptions: [
+        "outputs=true"
+    ]
 };
 ```
 
-#### Using via command line
-
-```shell
-$ mocha test --reporter mocha-gitlab-reporter --reporter-options 'filePathTransforms=[{"search":"^build/","replace":"src/"}]'
-```
 
 ### Attachments Support
 
@@ -201,7 +190,7 @@ it('should display login page', function() {
 Enable attachments in your reporter options:
 
 ```javascript
-var mocha = new Mocha({
+module.exports = {
     reporter: 'mocha-gitlab-reporter',
     reporterOptions: [
         "attachments=true"
@@ -236,7 +225,7 @@ Results XML filename can contain placeholders for dynamic values:
 Example:
 
 ```javascript
-var mocha = new Mocha({
+module.exports = {
     reporter: 'mocha-gitlab-reporter',
     reporterOptions: [
         "mochaFile=test-results.[hash].xml"
@@ -269,8 +258,8 @@ Note how:
 
 This package is a simplified, GitLab-focused fork of [mocha-junit-reporter](https://github.com/michaelleeallen/mocha-junit-reporter). Key differences:
 
-- **Simplified configuration** - Removed Jenkins-specific and Ant-specific options
 - **Optimized for GitLab CI** - Default settings work out of the box with GitLab
+- **Simplified configuration** - Removed Jenkins-specific and Ant-specific options
 
 ## Resources
 
