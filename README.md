@@ -1,212 +1,274 @@
-# JUnit Reporter for Mocha
+# mocha-gitlab-reporter
 
-[![Build Status][travis-badge]][travis-build]
 [![npm][npm-badge]][npm-listing]
 
-Produces JUnit-style XML test results.
+A GitLab CI compatible JUnit XML reporter for Mocha. Generates test reports that display correctly in GitLab's merge request and pipeline interfaces.
+
+## Why This Reporter?
+
+GitLab CI has specific requirements for JUnit XML format to properly display test results. This reporter is specifically designed to generate XML that GitLab CI expects, ensuring the test results display correctly with:
+
+- Test names and suite hierarchies properly formatted
+- Relative file paths for easy navigation
+- Proper classname/name structure that GitLab recognizes
+- Full support for attachments (screenshots, logs, etc.)
 
 ## Installation
 
 ```shell
-$ npm install mocha-junit-reporter --save-dev
-```
-
-or as a global module
-```shell
-$ npm install -g mocha-junit-reporter
+$ npm install mocha-gitlab-reporter --save-dev
 ```
 
 ## Usage
-Run mocha with `mocha-junit-reporter`:
+
+Run mocha with `mocha-gitlab-reporter`:
 
 ```shell
-$ mocha test --reporter mocha-junit-reporter
+$ mocha test --reporter mocha-gitlab-reporter
 ```
+
 This will output a results file at `./test-results.xml`.
-You may optionally declare an alternate location for results XML file by setting
-the environment variable `MOCHA_FILE` or specifying `mochaFile` in `reporterOptions`:
+
+## GitLab CI Configuration
+
+Example `.gitlab-ci.yml` configuration:
+
+```yaml
+test:
+  stage: test
+  script:
+    - npm install
+    - mocha test --reporter mocha-gitlab-reporter
+  artifacts:
+    when: always
+    reports:
+      junit: test-results.xml
+```
+
+## Features
+
+### Proper Test Hierarchy
+
+The reporter automatically generates XML with the correct structure for GitLab:
+- `testcase classname` = full suite hierarchy (e.g., "API Tests.UserController")
+- `testcase name` = individual test name (e.g., "should create user")
+- Suite titles are always separated by `.` for clean display in GitLab
+- Full suite titles are always included (nested suite hierarchy)
+- File paths are automatically included in test cases and converted to be relative to the current working directory
+
+### Console Reporter
+
+By default, this reporter only generates the XML file without console output. To enable console output, set the `consoleReporter` option:
+
+Using a `.mocharc.js` configuration file:
+
+```javascript
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "consoleReporter=spec"
+    ]
+};
+```
+
+Or via command line:
 
 ```shell
-$ MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-junit-reporter
+$ mocha test --reporter mocha-gitlab-reporter --reporter-options consoleReporter=spec
 ```
-or
+
+Or via environment variable:
+
 ```shell
-$ mocha test --reporter mocha-junit-reporter --reporter-options mochaFile=./path_to_your/file.xml
+$ CONSOLE_REPORTER=spec mocha test --reporter mocha-gitlab-reporter
 ```
-or
+
+Any built-in Mocha reporter name (`spec`, `dot`, `nyan`, `tap`, `landing`, `list`, `progress`, `json`, `min`, etc.) or a custom reporter module can be used.
+
+### Results Report Filename
+
+An alternate location for the results XML file can be specified by setting the `mochaFile` option:
+
+Using a `.mocharc.js` configuration file:
+
 ```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-junit-reporter',
-    reporterOptions: {
-        mochaFile: './path_to_your/file.xml'
-    }
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "mochaFile=./path_to_your/file.xml"
+    ]
+};
+```
+
+Or via command line:
+
+```shell
+$ mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+```
+
+Or via environment variable:
+
+```shell
+$ MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+```
+
+### File Path Transformation
+
+If your test files are built/compiled to a different directory, you can use regex to transform the file paths in the report. This is useful when you want the report to reference source files instead of compiled files.
+
+**Note:** The `filePathTransforms` value must be a **string**. Use the pipe-delimited format for easier CLI usage.
+
+#### Single Transformation
+
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms={search: '^build/'| replace: 'src/'}"
+    ]
 });
 ```
 
-### Append properties to testsuite
+#### Multiple Transformations
 
-You can also add properties to the report under `testsuite`. This is useful if you want your CI environment to add extra build props to the report for analytics purposes
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
+    ]
+});
+```
+
+This will transform paths like:
+- `build/modules/example.spec.js`
+
+To:
+- `src/modules/example.test.ts`
+
+The transformations are applied in order, so the output of the first transformation becomes the input to the second transformation.
+
+### Console Output Capture
+
+You can capture console output and errors:
+
+```javascript
+it('should report output', function() {
+  this.test.consoleOutputs = ['line 1 of output', 'line 2 of output'];
+});
+
+it('should report error', function() {
+  this.test.consoleErrors = ['line 1 of errors', 'line 2 of errors'];
+});
+```
+
+Enable outputs in your reporter options:
+
+Using a `.mocharc.js` configuration file:
+
+```javascript
+module.exports = {
+  reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "outputs=true"
+    ]
+};
+```
+
+
+### Attachments Support
+
+You can attach files and screenshots using the [JUnit Attachments Plugin](https://wiki.jenkins.io/display/JENKINS/JUnit+Attachments+Plugin) format:
+
+```javascript
+it('should display login page', function() {
+  // Your test code
+  this.test.attachments = ['/absolute/path/to/screenshot.png'];
+});
+```
+
+Enable attachments in your reporter options:
+
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "attachments=true"
+    ]
+});
+```
+
+## Configuration Options
+
+| Parameter               | Default              | Effect                                                                                           |
+| ----------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| mochaFile               | `test-results.xml`   | Configures the file to write reports to                                                          |
+| includePending          | `false`              | If set to a truthy value pending tests will be included in the report                            |
+| toConsole               | `false`              | If set to a truthy value the produced XML will be logged to the console                          |
+| consoleReporter         | `null`               | Name of a Mocha reporter to also output to console (e.g., `"spec"`, `"dot"`, `"nyan"`)           |
+| outputs                 | `false`              | If set to truthy value will include console output and console error output                      |
+| attachments             | `false`              | If set to truthy value will attach files to report in JUnit Attachments Plugin format            |
+| filePathTransforms      | `null`               | String with pipe-delimited transformations (e.g., `"[{search: '^build/'| replace: 'src/'}]"`) |
+
+### Results Report Filename Placeholders
+
+Results XML filename can contain placeholders for dynamic values:
+
+| placeholder         | output                                            |
+| ------------------- | ------------------------------------------------- |
+| `[hash]`            | MD5 hash of test results XML                      |
+| `[testsuitesTitle]` | Fixed value: "Mocha Tests"                        |
+| `[rootSuiteTitle]`  | Fixed value: "Root Suite"                         |
+| `[suiteFilename]`   | Filename of the spec file                         |
+| `[suiteName]`       | Name of the first test suite                      |
+
+Example:
+
+```javascript
+module.exports = {
+    reporter: 'mocha-gitlab-reporter',
+    reporterOptions: [
+        "mochaFile=test-results.[hash].xml"
+    ]
+});
+```
+
+This enables support of parallel execution of multiple `mocha-gitlab-reporter`'s writing test results in separate files.
+
+## Example Output
+
+Here's what the XML output looks like:
 
 ```xml
-<testsuites>
-  <testsuite>
-    <properties>
-      <property name="BUILD_ID" value="4291"/>
-    </properties>
-    <testcase/>
-    <testcase/>
-    <testcase/>
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Mocha Tests" time="0.001" tests="1" failures="0">
+  <testsuite name="Root Suite.API Tests.UserController" timestamp="2025-10-20T17:09:03" tests="1" time="0.001" failures="0">
+    <testcase name="should create user" time="0.000" classname="API Tests.UserController" file="test/api/user-test.js">
+    </testcase>
   </testsuite>
 </testsuites>
 ```
 
-To do so pass them in via env variable:
-```shell
-PROPERTIES=BUILD_ID:4291 mocha test --reporter mocha-junit-reporter
-```
-or
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-junit-reporter',
-    reporterOptions: {
-        properties: {
-            BUILD_ID: 4291
-        }
-    }
-})
-```
+Note how:
+- `classname="API Tests.UserController"` - This is what GitLab displays as the suite name
+- `name="should create user"` - This is the individual test name
+- `file="test/api/user-test.js"` - Relative path for navigation
 
-### Results Report
+## Differences from mocha-junit-reporter
 
-Results XML filename can contain `[hash]`, e.g. `./path_to_your/test-results.[hash].xml`. `[hash]` is replaced by MD5 hash of test results XML. This enables support of parallel execution of multiple `mocha-junit-reporter`'s writing test results in separate files. In addition to this these placeholders can also be used:
+This package is a simplified, GitLab-focused fork of [mocha-junit-reporter](https://github.com/michaelleeallen/mocha-junit-reporter). Key differences:
 
-| placeholder         | output                                            |
-| ------------------- | ------------------------------------------------- |
-| `[testsuitesTitle]` | will be replaced by the `testsuitesTitle` setting |
-| `[rootSuiteTitle]`  | will be replaced by the `rootSuiteTitle` setting  |
-| `[suiteFilename]`   | will be replaced by the filename of the spec file |
-| `[suiteName]`       | will be replaced by the name the first test suite |
+- **Optimized for GitLab CI** - Default settings work out of the box with GitLab
+- **Simplified configuration** - Removed Jenkins-specific and Ant-specific options
 
+## Resources
 
-In order to display full suite title (including parents) just specify `testsuitesTitle` option
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-junit-reporter',
-    reporterOptions: {
-        testsuitesTitle: true,
-        suiteTitleSeparatedBy: '.' // suites separator, default is space (' '), or period ('.') in jenkins mode
-    }
-});
-```
+- [GitLab CI Unit Test Reports Documentation](https://docs.gitlab.com/ci/testing/unit_test_reports/)
+- [JUnit XML Format](http://windyroad.org/dl/Open%20Source/JUnit.xsd)
 
-If you want to **switch classname and name** of the generated testCase XML entries, you can use the `testCaseSwitchClassnameAndName` reporter option.
+## License
 
-```javascript
-var mocha = new Mocha({
-    reporter: 'mocha-junit-reporter',
-    reporterOptions: {
-        testCaseSwitchClassnameAndName: true
-    }
-});
-```
+MIT
 
-Here is an example of the XML output when using the `testCaseSwitchClassnameAndName` option:
-
-| value             | XML output                                                                              |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| `true`            | `<testcase name="should behave like so" classname="Super Suite should behave like so">` |
-| `false` (default) | `<testcase name="Super Suite should behave like so" classname="should behave like so">` |
-
-You can also configure the `testsuites.name` attribute by setting `reporterOptions.testsuitesTitle` and the root suite's `name` attribute by setting `reporterOptions.rootSuiteTitle`.
-
-### System out and system err
-The JUnit format defines a pair of tags - `<system-out/>` and `<system-err/>` - for describing a test's generated output
-and error streams, respectively. It is possible to pass the test outputs/errors as an array of text lines:
-```js
-it ('should report output', function () {
-  this.test.consoleOutputs = [ 'line 1 of output', 'line 2 of output' ];
-});
-it ('should report error', function () {
-  this.test.consoleErrors = [ 'line 1 of errors', 'line 2 of errors' ];
-});
-```
-
-Since this module is only a reporter and not a self-contained test runner, it does not perform
-output capture itself. Thus, the author of the tests is responsible for providing a mechanism
-via which the outputs/errors array will be populated.
-
-If capturing only console.log/console.error is an option, a simple (if a bit hack-ish) solution is to replace
-the implementations of these functions globally, like so:
-```js
-var util = require('util');
-
-describe('my console tests', function () {
-  var originalLogFunction = console.log;
-  var originalErrorFunction = console.error;
-  beforeEach(function _mockConsoleFunctions() {
-    var currentTest = this.currentTest;
-    console.log = function captureLog() {
-      var formattedMessage = util.format.apply(util, arguments);
-      currentTest.consoleOutputs = (currentTest.consoleOutputs || []).concat(formattedMessage);
-    };
-    console.error = function captureError() {
-      var formattedMessage = util.format.apply(util, arguments);
-      currentTest.consoleErrors = (currentTest.consoleErrors || []).concat(formattedMessage);
-    };
-  });
-  afterEach(function _restoreConsoleFunctions() {
-    console.log = originalLogFunction;
-    console.error = originalErrorFunction;
-  });
-  it('should output something to the console', function() {
-    // This should end up in <system-out>:
-    console.log('hello, %s', 'world');
-  });
-});
-```
-
-Remember to run with `--reporter-options outputs=true` if you want test outputs in XML.
-
-### Attachments
-enabling the `attachments` configuration option will allow for attaching files and screenshots in [JUnit Attachments Plugin](https://wiki.jenkins.io/display/JENKINS/JUnit+Attachments+Plugin) format.
-
-Attachment path can be injected into the test object
-```js
-it ('should include attachment', function () {
-  this.test.attachments = ['/absolut/path/to/file.png'];
-});
-```
-
-If both attachments and outputs are enabled, and a test injects both consoleOutputs and attachments, then
-the XML output will look like the following:
-```xml
-<system-out>output line 1
-output line 2
-[[ATTACHMENT|path/to/file]]</system-out>
-```
-
-### Full configuration options
-
-| Parameter                      | Default                | Effect                                                                                                                  |
-| ------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| mochaFile                      | `test-results.xml`     | configures the file to write reports to                                                                                 |
-| includePending                 | `false`                | if set to a truthy value pending tests will be included in the report                                                   |
-| properties                     | `null`                 | a hash of additional properties to add to each test suite                                                               |
-| toConsole                      | `false`                | if set to a truthy value the produced XML will be logged to the console                                                 |
-| useFullSuiteTitle              | `false`                | if set to a truthy value nested suites' titles will show the suite lineage                                              |
-| suiteTitleSeparatedBy          | ` ` (space)            | the character to use to separate nested suite titles. (defaults to ' ', '.' if in jenkins mode)                         |
-| testCaseSwitchClassnameAndName | `false`                | set to a truthy value to switch name and classname values                                                               |
-| rootSuiteTitle                 | `Root Suite`           | the name for the root suite. (defaults to 'Root Suite')                                                                 |
-| testsuitesTitle                | `Mocha Tests`          | the name for the `testsuites` tag (defaults to 'Mocha Tests')                                                           |
-| outputs                        | `false`                | if set to truthy value will include console output and console error output                                             |
-| attachments                    | `false`                | if set to truthy value will attach files to report in `JUnit Attachments Plugin` format (after console outputs, if any) |
-| antMode                        | `false`                | set to truthy value to return xml compatible with [Ant JUnit schema][ant-schema]                                        |
-| antHostname                    | `process.env.HOSTNAME` | hostname to use when running in `antMode`  will default to environment `HOSTNAME`                                       |
-| jenkinsMode                    | `false`                | if set to truthy value will return xml that will display nice results in Jenkins                                        |
-| jenkinsClassnamePrefix         | `undefined`            | adds a prefix to a classname when running  in `jenkinsMode`                                                             |
-
-[travis-badge]: https://travis-ci.org/michaelleeallen/mocha-junit-reporter.svg?branch=master
-[travis-build]: https://travis-ci.org/michaelleeallen/mocha-junit-reporter
-[npm-badge]: https://img.shields.io/npm/v/mocha-junit-reporter.svg?maxAge=2592000
-[npm-listing]: https://www.npmjs.com/package/mocha-junit-reporter
-[ant-schema]: http://windyroad.org/dl/Open%20Source/JUnit.xsd
+[npm-badge]: https://img.shields.io/npm/v/mocha-gitlab-reporter.svg?maxAge=2592000
+[npm-listing]: https://www.npmjs.com/package/mocha-gitlab-reporter
