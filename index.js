@@ -1,49 +1,62 @@
 "use strict";
 
-var xml = require("xml");
-var mocha = require("mocha");
-var Base = mocha.reporters.Base;
-var fs = require("fs");
-var path = require("path");
-var debug = require("debug")("mocha-gitlab-reporter");
-var mkdirp = require("mkdirp");
-var md5 = require("md5");
-var stripAnsi = require("strip-ansi");
+const xml = require("xml");
+const mocha = require("mocha");
+const Base = mocha.reporters.Base;
+const fs = require("node:fs");
+const path = require("node:path");
+const debug = require("debug")("mocha-gitlab-reporter");
+const mkdirp = require("mkdirp");
+const crypto = require("node:crypto");
+const stripAnsi = require("strip-ansi");
 
 // Save timer references so that times are correct even if Date is stubbed.
 // See https://github.com/mochajs/mocha/issues/237
-var Date = global.Date;
+const GlobalDate = globalThis.Date;
 
-var createStatsCollector;
-var mocha6plus;
+let createStatsCollector;
+let mocha6plus = false;
 
 try {
-  var json = JSON.parse(
+  const json = JSON.parse(
     fs.readFileSync(
       path.dirname(require.resolve("mocha")) + "/package.json",
       "utf8"
     )
   );
-  var version = json.version;
-  var majorVersion = parseInt(version.split(".")[0], 10);
+  const version = json.version;
+  const majorVersion = Number.parseInt(version.split(".")[0], 10);
   if (majorVersion >= 6) {
     createStatsCollector = require("mocha/lib/stats-collector");
     mocha6plus = true;
   } else {
     mocha6plus = false;
   }
-} catch (e) {
-  console.warn("Couldn't determine Mocha version");
+} catch (error_) {
+  // best-effort: if mocha package.json can't be read we continue with defaults
+  console.warn("Couldn't determine Mocha version", error_);
 }
 
 // A subset of invalid characters as defined in http://www.w3.org/TR/xml/#charsets that can occur in e.g. stacktraces
 // regex lifted from https://github.com/MylesBorins/xml-sanitizer/ (licensed MIT)
-var INVALID_CHARACTERS_REGEX =
+const INVALID_CHARACTERS_REGEX =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007f-\u0084\u0086-\u009f\uD800-\uDFFF\uFDD0-\uFDFF\uFFFF\uC008]/g; //eslint-disable-line no-control-regex
 
+/**
+ * Configure default options for the reporter by combining reporter options with environment variables.
+ * @param {Object} options - Options passed to the reporter
+ * @param {Object} [options.reporterOptions] - Reporter-specific options
+ * @param {string} [options.reporterOptions.mochaFile] - Path to output XML file
+ * @param {boolean} [options.reporterOptions.attachments] - Whether to include attachments
+ * @param {boolean} [options.reporterOptions.toConsole] - Whether to output XML to console
+ * @param {string} [options.reporterOptions.consoleReporter] - Name of console reporter to use alongside XML
+ * @param {string} [options.reporterOptions.filePathTransforms] - File path transformation rules
+ * @returns {Object} The complete configuration object with all options resolved
+ * @throws {TypeError} If filePathTransforms has invalid format
+ */
 function configureDefaults(options) {
   debug("Mocha options", options);
-  var config = options.reporterOptions || {};
+  const config = options?.reporterOptions ?? {};
   debug("Reporter options", config);
   config.mochaFile = getSetting(
     config.mochaFile,
@@ -59,15 +72,15 @@ function configureDefaults(options) {
   );
 
   // Normalize to array of pattern pairs
-  var transforms = [];
+  let transforms = [];
 
   // Check if filePathTransforms string is provided
   if (config.filePathTransforms) {
-    var filePathTransforms = config.filePathTransforms;
+    let filePathTransforms = config.filePathTransforms;
 
     // filePathTransforms must be a string
     if (typeof filePathTransforms !== 'string') {
-      throw new Error(
+      throw new TypeError(
         "filePathTransforms must be a string value. Use pipe-delimited format like: \"[{search: '^build/'| replace: 'src/'}]\""
       );
     }
@@ -75,54 +88,92 @@ function configureDefaults(options) {
     // Replace pipes with commas to support CLI-friendly format
     // Example: "[{search: '^build/'| replace: 'src/'}|{search: '^src/'| replace: 'src2/'}]"
     // becomes: "[{search: '^build/', replace: 'src/'},{search: '^src/', replace: 'src2/'}]"
-    filePathTransforms = filePathTransforms.replace(/\|\s*/g, ',');
+    filePathTransforms = filePathTransforms.split(/\|\s*/).join(',');
 
     // Convert shorthand property names to quoted names for valid JSON
     // Replace 'search:' with '"search":' and 'replace:' with '"replace":'
-    filePathTransforms = filePathTransforms.replace(/(\{|\s)search:/g, '$1"search":');
-    filePathTransforms = filePathTransforms.replace(/(\{|\s|,)replace:/g, '$1"replace":');
+    filePathTransforms = filePathTransforms.replaceAll(/(\{|\s)search:/g, '$1"search":');
+    filePathTransforms = filePathTransforms.replaceAll(/(\{|\s|,)replace:/g, '$1"replace":');
 
     // Convert single quotes to double quotes for string values
     // Handle backslashes properly - they need to be escaped for JSON
-    filePathTransforms = filePathTransforms.replace(/:\s*'([^']*)'/g, function(match, content) {
+    filePathTransforms = filePathTransforms.replaceAll(/:\s*'([^']*)'/g, function (match, content) {
       // Escape backslashes for JSON (\ becomes \\)
-      var escaped = content.replace(/\\/g, '\\\\');
+      const escaped = content.replaceAll('\\', '\\\\');
       return ': "' + escaped + '"';
     });
 
-    try {
-      filePathTransforms = JSON.parse(filePathTransforms);
-    } catch (e) {
-      throw new Error(
-        "filePathTransforms must be valid JSON. Error: " + e.message
-      );
-    }
-
-    if (Array.isArray(filePathTransforms)) {
-      // Array of transforms provided
-      filePathTransforms.forEach(function(transform, index) {
-        if (!transform.search || !transform.replace) {
-          throw new Error(
-            "filePathTransforms[" + index + "] must have both 'search' and 'replace' properties."
-          );
-        }
-      });
-      transforms = filePathTransforms;
-    } else if (typeof filePathTransforms === 'object') {
-      // Single object provided, convert to array
-      if (!filePathTransforms.search || !filePathTransforms.replace) {
-        throw new Error(
-          "filePathTransforms must have both 'search' and 'replace' properties."
-        );
-      }
-      transforms = [filePathTransforms];
-    }
+    transforms = parseFilePathTransforms(filePathTransforms);
   }
 
   config.filePathTransforms = transforms;
 
   debug("Config", config);
   return config;
+}
+
+/**
+ * Parse file path transformation rules from input string.
+ * Accepts either JSON format or pipe-delimited CLI-friendly format.
+ * @param {string} input - File path transform rules in JSON or pipe-delimited format
+ * @returns {Array<{search: string, replace: string}>} Array of transformation rules
+ * @throws {TypeError} If input is invalid JSON or missing required properties
+ * @example
+ * // JSON format
+ * parseFilePathTransforms('[{"search": "^build/", "replace": "src/"}]')
+ * // Pipe-delimited format
+ * parseFilePathTransforms('{search: "^build/"| replace: "src/"}')
+ */
+function parseFilePathTransforms(input) {
+  // Accept a JSON string or the CLI friendly pipe-delimited format already normalized
+  let parsed;
+  try {
+    parsed = JSON.parse(input);
+  } catch (e) {
+    // Not valid JSON; rethrow a clearer error for the caller
+    throw new TypeError("filePathTransforms must be valid JSON. Error: " + e.message);
+  }
+
+  if (Array.isArray(parsed)) {
+    for (const [index, transform] of parsed.entries()) {
+      if (!transform?.search || !transform?.replace) {
+        throw new TypeError(`filePathTransforms[${index}] must have both 'search' and 'replace' properties.`);
+      }
+    }
+    return parsed;
+  }
+
+  if (typeof parsed === 'object' && parsed !== null) {
+    if (!parsed.search || !parsed.replace) {
+      throw new TypeError("filePathTransforms must have both 'search' and 'replace' properties.");
+    }
+    return [parsed];
+  }
+
+  throw new TypeError('filePathTransforms has unsupported format');
+}
+
+/**
+ * Check if a reporter name is safe to require dynamically.
+ * Only allows alphanumeric characters and limited special characters.
+ * @param {string} name - The reporter name to validate
+ * @returns {boolean} True if name is safe to require, false otherwise
+ * @example
+ * isSafeReporterName('spec') // true
+ * isSafeReporterName('@scope/reporter') // true
+ * isSafeReporterName('../unsafe') // false
+ */
+function isSafeReporterName(name) {
+  if (typeof name !== 'string' || name.length === 0) return false;
+  for (let i = 0; i < name.length; i++) {
+    const c = name.codePointAt(i);
+    // 0-9, A-Z, a-z
+    if ((c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122)) continue;
+    // allow @ (64), . (46), _ (95), - (45), / (47)
+    if (c === 64 || c === 46 || c === 95 || c === 45 || c === 47) continue;
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -138,7 +189,7 @@ function configureDefaults(options) {
  */
 function getSetting(value, key, defaultVal, transform) {
   if (process.env[key] !== undefined) {
-    var envVal = process.env[key];
+    const envVal = process.env[key];
     return typeof transform === "function" ? transform(envVal) : envVal;
   }
   if (value !== undefined) {
@@ -158,8 +209,8 @@ function generateSuiteTitle(suite) {
     return "Root Suite";
   }
 
-  var parent = suite.parent;
-  var title = [suite.title];
+  let parent = suite.parent;
+  const title = [suite.title];
 
   while (parent) {
     if (parent.root && parent.title === "") {
@@ -191,9 +242,8 @@ function isInvalidSuite(suite) {
  * @returns {string} the GitLab suite classname
  */
 function getGitLabSuiteClassname(test) {
-  // debug("Building GitLab suite classname for", test);
-  var parent = test.parent;
-  var titles = [];
+  let parent = test.parent;
+  const titles = [];
   while (parent) {
     if (parent.title) {
       titles.unshift(parent.title);
@@ -218,13 +268,13 @@ class MochaGitLabReporter {
     }
     this._options = configureDefaults(options);
     this._runner = runner;
-    this._Date = (options || {}).Date || Date;
+    this._Date = options?.Date ?? GlobalDate;
 
-    var testsuites = [];
+    let testsuites = [];
     this._testsuites = testsuites;
 
     function lastSuite() {
-      return testsuites[testsuites.length - 1].testsuite;
+      return testsuites.at(-1).testsuite;
     }
 
     // get functionality from the Base reporter
@@ -232,24 +282,26 @@ class MochaGitLabReporter {
 
     // If consoleReporter option is set, also run that reporter for console output
     if (this._options.consoleReporter) {
-      var reporterName = this._options.consoleReporter;
-      var ConsoleReporter;
+      const reporterName = this._options.consoleReporter;
+      let ConsoleReporter = null;
 
       // Handle built-in reporter names
       if (mocha.reporters[reporterName]) {
         ConsoleReporter = mocha.reporters[reporterName];
-      } else {
-        // Try to require as a module
+      } else if (isSafeReporterName(reporterName)) {
+        // Try to require as a module, but only for safe module names
         try {
           ConsoleReporter = require(reporterName);
-        } catch (e) {
-          console.warn("Could not load console reporter: " + reporterName);
+        } catch (error_) {
+          debug("Could not load console reporter: " + reporterName, error_);
         }
+      } else {
+        debug("Refusing to load unsafe console reporter name: " + reporterName);
       }
 
       if (ConsoleReporter) {
-        // Instantiate the console reporter with the same runner
-        new ConsoleReporter(runner, options);
+        // Instantiate the console reporter with the same runner and keep a ref
+        this._consoleReporter = new ConsoleReporter(runner, options);
       }
     }
 
@@ -280,9 +332,9 @@ class MochaGitLabReporter {
 
     this._onSuiteEnd = function (suite) {
       if (!isInvalidSuite(suite)) {
-        var testsuite = lastSuite();
+        const testsuite = lastSuite();
         if (testsuite) {
-          var start = testsuite[0]._attr.timestamp;
+          const start = testsuite[0]._attr.timestamp;
           testsuite[0]._attr.time = this._Date.now() - start;
         }
       }
@@ -314,7 +366,7 @@ class MochaGitLabReporter {
       this._runner.on(
         "pending",
         function (test) {
-          var testcase = this.getTestcaseData(test);
+          const testcase = this.getTestcaseData(test);
 
           testcase.testcase.push({ skipped: null });
           lastSuite().push(testcase);
@@ -336,12 +388,12 @@ class MochaGitLabReporter {
    * @return {Object}       - an object representing the xml node
    */
   getTestsuiteData(suite) {
-    var _attr = {
+    const _attr = {
       name: generateSuiteTitle(suite),
       timestamp: this._Date.now(),
       tests: suite.tests.length,
     };
-    var testSuite = { testsuite: [{ _attr: _attr }] };
+    const testSuite = { testsuite: [{ _attr: _attr }] };
 
     return testSuite;
   }
@@ -354,16 +406,16 @@ class MochaGitLabReporter {
    */
   getTestcaseData(test, err) {
     // GitLab format: classname is suite name, name is test title
-    var name = stripAnsi(test.title);
-    var classname = stripAnsi(getGitLabSuiteClassname(test));
+    const name = stripAnsi(test.title);
+    const classname = stripAnsi(getGitLabSuiteClassname(test));
 
-    var testcase = {
+    const durationMs = test.expectedDuration ?? test.duration;
+    const testcase = {
       testcase: [
         {
           _attr: {
             name: name,
-            time:
-              typeof test.duration === "undefined" ? 0 : test.duration / 1000,
+            time: durationMs === undefined ? 0 : durationMs / 1000,
             classname: classname,
           },
         },
@@ -371,101 +423,148 @@ class MochaGitLabReporter {
     };
 
     // Always add file attribute if available (GitLab format)
-    if (test.file) {
-      var filePath = test.file;
-      // Make path relative to cwd (typically the git repo root)
-      if (path.isAbsolute(filePath)) {
-        filePath = path.relative(process.cwd(), filePath);
-      }
-      // Apply regex transformations if configured
-      if (this._options.filePathTransforms && this._options.filePathTransforms.length > 0) {
-        this._options.filePathTransforms.forEach(function(transform) {
-          var regex = new RegExp(transform.search);
-          filePath = filePath.replace(regex, transform.replace);
-        });
-      }
-      testcase.testcase[0]._attr.file = filePath;
-    }
+    // Always add file attribute if available (GitLab format)
+    this.appendFileAttribute(testcase, test);
 
-    // We need to merge console.logs and attachments into one <system-out> -
-    //  see JUnit schema (only accepts 1 <system-out> per test).
-    var systemOutLines = [];
-    if (
-      this._options.outputs &&
-      test.consoleOutputs &&
-      test.consoleOutputs.length > 0
-    ) {
-      systemOutLines = systemOutLines.concat(test.consoleOutputs);
+    // Add any system outputs/errors and attachments
+    this.appendSystemOut(testcase, test);
+    this.appendSystemErr(testcase, test);
+
+    if (err) {
+      this.appendFailure(testcase, err);
     }
-    if (
-      this._options.attachments &&
-      test.attachments &&
-      test.attachments.length > 0
-    ) {
-      systemOutLines = systemOutLines.concat(
-        test.attachments.map(function (file) {
-          return "[[ATTACHMENT|" + file + "]]";
-        })
-      );
+    return testcase;
+  }
+
+  /**
+   * Add file attribute to testcase XML if test has associated file.
+   * The file path is made relative to cwd and can be transformed using configured rules.
+   * @param {Object} testcase - The testcase object to modify
+   * @param {Object} test - The test object containing file information
+   * @param {string} [test.file] - Path to the test file
+   */
+  appendFileAttribute(testcase, test) {
+    if (!test.file) return;
+    let filePath = test.file;
+    // Make path relative to cwd (typically the git repo root)
+    if (path.isAbsolute(filePath)) {
+      filePath = path.relative(process.cwd(), filePath);
+    }
+    // Apply regex transformations if configured
+    if (this._options.filePathTransforms && this._options.filePathTransforms.length > 0) {
+      for (const transform of this._options.filePathTransforms) {
+        // validate transform pattern to avoid throwing on invalid regex or non-string replace
+        try {
+          if (typeof transform.search !== 'string' || typeof transform.replace !== 'string') {
+            throw new TypeError('Invalid filePathTransforms entry');
+          }
+          const regex = new RegExp(transform.search);
+          filePath = filePath.replace(regex, transform.replace);
+        } catch (e) {
+          debug('Skipping invalid filePathTransforms entry', transform, e?.message);
+        }
+      }
+    }
+    testcase.testcase[0]._attr.file = filePath;
+  }
+
+  /**
+   * Add system-out element to testcase XML for console outputs and attachments.
+   * Filters out invalid XML characters and ANSI escape sequences.
+   * @param {Object} testcase - The testcase object to modify
+   * @param {Object} test - The test object containing outputs and attachments
+   * @param {string[]} [test.consoleOutputs] - Array of console output strings
+   * @param {string[]} [test.attachments] - Array of attachment file paths
+   * @returns {boolean} True if system-out was added, false otherwise
+   */
+  appendSystemOut(testcase, test) {
+    const systemOutLines = [];
+    if (this._options.outputs && Array.isArray(test.consoleOutputs) && test.consoleOutputs.length > 0) {
+      systemOutLines.push(...test.consoleOutputs);
+    }
+    if (this._options.attachments && Array.isArray(test.attachments) && test.attachments.length > 0) {
+      systemOutLines.push(...test.attachments.map((file) => `[[ATTACHMENT|${file}]]`));
     }
     if (systemOutLines.length > 0) {
       testcase.testcase.push({
-        "system-out": this.removeInvalidCharacters(
-          stripAnsi(systemOutLines.join("\n"))
-        ),
+        "system-out": this.removeInvalidCharacters(stripAnsi(systemOutLines.join("\n")))
       });
+      return true;
     }
+    return false;
+  }
 
-    if (
-      this._options.outputs &&
-      test.consoleErrors &&
-      test.consoleErrors.length > 0
-    ) {
+  /**
+   * Add system-err element to testcase XML for console errors.
+   * Filters out invalid XML characters and ANSI escape sequences.
+   * @param {Object} testcase - The testcase object to modify
+   * @param {Object} test - The test object containing error outputs
+   * @param {string[]} [test.consoleErrors] - Array of console error strings
+   * @returns {boolean} True if system-err was added, false otherwise
+   */
+  appendSystemErr(testcase, test) {
+    if (this._options.outputs && Array.isArray(test.consoleErrors) && test.consoleErrors.length > 0) {
       testcase.testcase.push({
-        "system-err": this.removeInvalidCharacters(
-          stripAnsi(test.consoleErrors.join("\n"))
-        ),
+        "system-err": this.removeInvalidCharacters(stripAnsi(test.consoleErrors.join("\n")))
       });
+      return true;
     }
+    return false;
+  }
 
-    if (err) {
-      var message;
-      if (err.message && typeof err.message.toString === "function") {
-        message = err.message + "";
-      } else if (typeof err.inspect === "function") {
-        message = err.inspect() + "";
-      } else {
-        message = "";
-      }
-      var failureMessage = err.stack || message;
-      if (!Base.hideDiff && err.expected !== undefined) {
-        var oldUseColors = Base.useColors;
-        Base.useColors = false;
-        failureMessage += "\n" + Base.generateDiff(err.actual, err.expected);
-        Base.useColors = oldUseColors;
-      }
-      var failureElement = {
-        _attr: {
-          message: this.removeInvalidCharacters(message) || "",
-          type: err.name || "",
-        },
-        _cdata: this.removeInvalidCharacters(failureMessage),
-      };
-
-      testcase.testcase.push({ failure: failureElement });
+  /**
+   * Add failure element to testcase XML for test failures.
+   * Includes error message, stack trace, and diff if available.
+   * Filters out invalid XML characters.
+   * @param {Object} testcase - The testcase object to modify
+   * @param {Error} err - The error object from the failed test
+   * @param {string} [err.message] - Error message
+   * @param {string} [err.stack] - Error stack trace
+   * @param {string} [err.name] - Error type name
+   * @param {*} [err.expected] - Expected value for assertion errors
+   * @param {*} [err.actual] - Actual value for assertion errors
+   */
+  appendFailure(testcase, err) {
+    let message;
+    if (err.message && typeof err.message.toString === "function") {
+      message = err.message + "";
+    } else if (typeof err.inspect === "function") {
+      message = err.inspect() + "";
+    } else {
+      message = "";
     }
-    return testcase;
+    let failureMessage = err.stack || message;
+    if (!Base.hideDiff && err.expected !== undefined) {
+      const oldUseColors = Base.useColors;
+      Base.useColors = false;
+      failureMessage += "\n" + Base.generateDiff(err.actual, err.expected);
+      Base.useColors = oldUseColors;
+    }
+    const failureElement = {
+      _attr: {
+        message: this.removeInvalidCharacters(message) || "",
+        type: err.name || "",
+      },
+      _cdata: this.removeInvalidCharacters(failureMessage),
+    };
+
+    testcase.testcase.push({ failure: failureElement });
   }
 
   /**
    * @param {string} input
    * @returns {string} without invalid characters
    */
+  /**
+   * Removes invalid XML characters from a string using a predefined regex pattern.
+   * @param {string} input - The string to clean
+   * @returns {string} The input string with invalid XML characters removed
+   */
   removeInvalidCharacters(input) {
     if (!input) {
       return input;
     }
-    return input.replace(INVALID_CHARACTERS_REGEX, "");
+    return input.replaceAll(INVALID_CHARACTERS_REGEX, "");
   }
 
   /**
@@ -475,7 +574,7 @@ class MochaGitLabReporter {
   flush(testsuites) {
     this._xml = this.getXml(testsuites);
 
-    var reportFilename = this.formatReportFilename(this._xml, testsuites);
+    const reportFilename = this.formatReportFilename(this._xml, testsuites);
 
     this.writeXmlToDisk(this._xml, reportFilename);
 
@@ -490,28 +589,29 @@ class MochaGitLabReporter {
    * @param {Array.<Object>} testsuites - a list of xml configs
    */
   formatReportFilename(xml, testsuites) {
-    var reportFilename = this._options.mochaFile;
+    let reportFilename = this._options.mochaFile;
 
-    if (reportFilename.indexOf("[hash]") !== -1) {
-      reportFilename = reportFilename.replace("[hash]", md5(xml));
+    if (reportFilename.includes("[hash]")) {
+      const hash = crypto.createHash("sha256").update(xml, "utf8").digest("hex");
+      reportFilename = reportFilename.replace("[hash]", hash);
     }
 
-    if (reportFilename.indexOf("[testsuitesTitle]") !== -1) {
+    if (reportFilename.includes("[testsuitesTitle]")) {
       reportFilename = reportFilename.replace(
         "[testsuitesTitle]",
         "Mocha Tests"
       );
     }
-    if (reportFilename.indexOf("[rootSuiteTitle]") !== -1) {
+    if (reportFilename.includes("[rootSuiteTitle]")) {
       reportFilename = reportFilename.replace("[rootSuiteTitle]", "Root Suite");
     }
-    if (reportFilename.indexOf("[suiteFilename]") !== -1) {
+    if (reportFilename.includes("[suiteFilename]")) {
       reportFilename = reportFilename.replace(
         "[suiteFilename]",
         testsuites[0]?.testsuite[0]?._attr?.file ?? "suiteFilename"
       );
     }
-    if (reportFilename.indexOf("[suiteName]") !== -1) {
+    if (reportFilename.includes("[suiteName]")) {
       reportFilename = reportFilename.replace(
         "[suiteName]",
         testsuites[1]?.testsuite[0]?._attr?.name ?? "suiteName"
@@ -527,28 +627,28 @@ class MochaGitLabReporter {
    * @returns {string}
    */
   getXml(testsuites) {
-    var totalTests = 0;
-    var stats = this._runner.stats;
-    var Date = this._Date;
+    let totalTests = 0;
+    const stats = this._runner.stats;
+    const LocalDate = this._Date;
 
-    testsuites.forEach(function (suite) {
-      var _suiteAttr = suite.testsuite[0]._attr;
+    for (const suite of testsuites) {
+      const _suiteAttr = suite.testsuite[0]._attr;
       // testsuite is an array: [attrs, testcase, testcase, …]
       // grab test cases starting from index 1
-      var _cases = suite.testsuite.slice(1);
+      const _cases = suite.testsuite.slice(1);
 
       // suiteTime has unrounded time as a Number of milliseconds
-      var suiteTime = _suiteAttr.time;
+      const suiteTime = _suiteAttr.time;
 
       _suiteAttr.time = (suiteTime / 1000 || 0).toFixed(3);
-      _suiteAttr.timestamp = new Date(_suiteAttr.timestamp)
+      _suiteAttr.timestamp = new LocalDate(_suiteAttr.timestamp)
         .toISOString()
         .slice(0, -5);
       _suiteAttr.failures = 0;
       _suiteAttr.skipped = 0;
 
-      _cases.forEach(function (testcase) {
-        var lastNode = testcase.testcase[testcase.testcase.length - 1];
+      for (const testcase of _cases) {
+        const lastNode = testcase.testcase.at(-1);
 
         _suiteAttr.skipped += Number("skipped" in lastNode);
         _suiteAttr.failures += Number("failure" in lastNode);
@@ -556,16 +656,16 @@ class MochaGitLabReporter {
           testcase.testcase[0]._attr.time =
             testcase.testcase[0]._attr.time.toFixed(3);
         }
-      });
+      }
 
       if (!_suiteAttr.skipped) {
         delete _suiteAttr.skipped;
       }
 
       totalTests += _suiteAttr.tests;
-    });
+    }
 
-    var rootSuite = {
+    const rootSuite = {
       _attr: {
         name: "Mocha Tests",
         time: (stats.duration / 1000 || 0).toFixed(3),
@@ -593,8 +693,8 @@ class MochaGitLabReporter {
 
       try {
         fs.writeFileSync(filePath, xml, "utf-8");
-      } catch (exc) {
-        debug("problem writing results: " + exc);
+      } catch (error) {
+        debug("problem writing results: " + error);
       }
       debug("results written successfully");
     }

@@ -1,184 +1,209 @@
 /* eslint-env mocha */
 "use strict";
 
-var Reporter = require("../index");
+let Reporter = require("../index");
 
-var mochaVersion = process.env.MOCHA_VERSION || "";
-var Mocha = require("mocha" + mochaVersion);
-var Runner = Mocha.Runner;
-var Suite = Mocha.Suite;
-var Test = Mocha.Test;
+let mochaVersion = process.env.MOCHA_VERSION || "";
+let Mocha = require("mocha" + mochaVersion);
+let Runner = Mocha.Runner;
+let Suite = Mocha.Suite;
+let Test = Mocha.Test;
 
-var fs = require("fs");
-var path = require("path");
-var rimraf = require("rimraf");
+let fs = require("node:fs");
+let path = require("node:path");
+let rimraf = require("rimraf");
+let chai = require("chai");
+let expect = chai.expect;
+let FakeTimer = require("@sinonjs/fake-timers");
+let chaiXML = require("chai-xml");
+let mockXml = require("./mock-results");
+let mockJunitSuites = require("./mock-junit-suites");
+let testConsole = require("test-console");
 
-var chai = require("chai");
-var expect = chai.expect;
-var FakeTimer = require("@sinonjs/fake-timers");
-var chaiXML = require("chai-xml");
-var mockXml = require("./mock-results");
-var mockJunitSuites = require("./mock-junit-suites");
-var testConsole = require("test-console");
-
-var debug = require("debug")("mocha-junit-reporter:tests");
+let debug = require("debug")("mocha-junit-reporter:tests");
 
 chai.use(chaiXML);
 
+function createTest(name, options, fn) {
+  if (typeof options === "function") {
+    fn = options;
+    options = null;
+  }
+  options = options || {};
+
+  // null fn means no callback which mocha treats as pending test.
+  // undefined fn means caller wants a default fn.
+  if (fn === undefined) {
+    fn = function () {};
+  }
+
+  const test = new Test(name, fn);
+
+  let duration = options.duration;
+  if (duration != null) {
+    // mock duration so we have consistent output
+    // store on a custom property so the reporter can read a deterministic value
+    // without interfering with Mocha's internal duration handling
+    test.expectedDuration = duration;
+  }
+
+  return test;
+}
+
+function assertXmlEquals(actual, expected) {
+  expect(actual).xml.to.be.valid();
+  expect(actual).xml.to.equal(expected);
+}
+
+async function removeTestPath(callback) {
+  try {
+    await rimraf.rimraf(__dirname + "/output");
+    // tests that exercise defaults will write to $CWD/test-results.xml
+    await rimraf.rimraf(__dirname + "/../test-results.xml");
+    callback();
+  } catch (err) {
+    callback(err);
+  }
+}
+
+function createRunner() {
+  // mocha always has a root suite
+  let rootSuite = new Suite("", "root", true);
+
+  // We don't want Mocha to emit timeout errors.
+  // If we want to simulate errors, we'll emit them ourselves.
+  rootSuite.timeout(0);
+
+  return new Runner(rootSuite);
+}
+
+function runRunner(runner, callback) {
+  runner.run(function (failureCount) {
+    if (runner.dispose) {
+      // Ensure uncaught exception handlers are cleared before we execute test assertions.
+      // Otherwise, this runner would intercept uncaught exceptions that were already handled by the mocha instance
+      // running our tests.
+      runner.dispose();
+    }
+
+    callback(failureCount);
+  });
+}
+
+function getFileNameWithHash(path) {
+  const filenames = fs.readdirSync(path);
+  // Accept either 32-char (md5) or 64-char (sha256) hex hashes
+  const expected = /(^results\.)([a-f0-9]{32,64})(\.xml)$/i;
+
+  for (const filename of filenames) {
+    if (expected.test(filename)) {
+      return filename;
+    }
+  }
+}
+
+function runTests(reporter, options, callback) {
+  if (!callback) {
+    callback = options;
+    options = null;
+  }
+  options = options || {};
+  options.invalidChar = options.invalidChar || "";
+  options.title = options.title || "Foo Bar";
+
+  const runner = reporter.runner;
+  const rootSuite = runner.suite;
+
+  const suite1 = Suite.create(rootSuite, options.title);
+  suite1.addTest(createTest("can weez the juice", { duration: 101 }));
+
+  suite1.addTest(
+    createTest("can narfle the garthog", { duration: 2002 }, function (done) {
+      const err = new Error(
+        options.invalidChar +
+          "expected garthog to be dead" +
+          options.invalidChar
+      );
+      err.stack = "this is where the stack would be";
+      done(err);
+    })
+  );
+
+  suite1.addTest(
+    createTest(
+      "can behave like a flandip",
+      { duration: 30003 },
+      function (done) {
+        const err = new Error(
+          "expected baz to be masher, a hustler, an uninvited grasper of cone"
+        );
+        err.name = "BazError";
+        err.stack = "stack";
+        done(err);
+      }
+    )
+  );
+
+  const suite2 = Suite.create(rootSuite, "Another suite!");
+  suite2.addTest(createTest("works", { duration: 400004 }));
+
+  if (options.includePending) {
+    const pendingSuite = Suite.create(rootSuite, "Pending suite!");
+    pendingSuite.addTest(createTest("pending", null, null));
+  }
+
+  const _onSuiteEnd = reporter._onSuiteEnd.bind(reporter);
+
+  reporter._onSuiteEnd = function (suite) {
+    if (suite === rootSuite) {
+      // root suite took no time to execute
+      reporter._Date.clock.tick(0);
+    } else if (suite === suite1) {
+      // suite1 took an arbitrary amount of time that includes time to run each test + setup and teardown
+      reporter._Date.clock.tick(100001);
+    } else if (suite === suite2) {
+      reporter._Date.clock.tick(400005);
+    }
+
+    return _onSuiteEnd(suite);
+  };
+
+  runRunner(runner, callback);
+}
+
+function verifyMochaFile(runner, filePath, options) {
+  const now = new Date().toISOString();
+  debug("verify", now);
+  const output = fs.readFileSync(filePath, "utf-8");
+  assertXmlEquals(output, mockXml(runner.stats, options));
+  debug("done", now);
+}
+
 describe("mocha-junit-reporter", function () {
-  var filePath;
-  var MOCHA_FILE;
-  var stdout;
+  let filePath;
+  let MOCHA_FILE;
+  let stdout;
 
   function mockStdout() {
     stdout = testConsole.stdout.inspect();
     return stdout;
   }
 
-  function createTest(name, options, fn) {
-    if (typeof options === "function") {
-      fn = options;
-      options = null;
-    }
-    options = options || {};
+  // runTests moved to module scope
 
-    // null fn means no callback which mocha treats as pending test.
-    // undefined fn means caller wants a default fn.
-    if (fn === undefined) {
-      fn = function () {};
-    }
+  // helper functions moved to module scope
 
-    var test = new Test(name, fn);
+  // verifyMochaFile moved to module scope
 
-    var duration = options.duration;
-    if (duration != null) {
-      // mock duration so we have consistent output
-      Object.defineProperty(test, "duration", {
-        set: function () {
-          // do nothing
-        },
-        get: function () {
-          return duration;
-        },
-      });
-    }
+  // helper functions moved to module scope
 
-    return test;
-  }
-
-  function runTests(reporter, options, callback) {
-    if (!callback) {
-      callback = options;
-      options = null;
-    }
-    options = options || {};
-    options.invalidChar = options.invalidChar || "";
-    options.title = options.title || "Foo Bar";
-
-    var runner = reporter.runner;
-    var rootSuite = runner.suite;
-
-    var suite1 = Suite.create(rootSuite, options.title);
-    suite1.addTest(
-      createTest("can weez the juice", {
-        duration: 101,
-      })
-    );
-
-    suite1.addTest(
-      createTest("can narfle the garthog", { duration: 2002 }, function (done) {
-        var err = new Error(
-          options.invalidChar +
-            "expected garthog to be dead" +
-            options.invalidChar
-        );
-        err.stack = "this is where the stack would be";
-        done(err);
-      })
-    );
-
-    suite1.addTest(
-      createTest(
-        "can behave like a flandip",
-        { duration: 30003 },
-        function (done) {
-          var err = new Error(
-            "expected baz to be masher, a hustler, an uninvited grasper of cone"
-          );
-          err.name = "BazError";
-          err.stack = "stack";
-          done(err);
-        }
-      )
-    );
-
-    var suite2 = Suite.create(rootSuite, "Another suite!");
-    suite2.addTest(createTest("works", { duration: 400004 }));
-
-    if (options.includePending) {
-      var pendingSuite = Suite.create(rootSuite, "Pending suite!");
-      pendingSuite.addTest(createTest("pending", null, null));
-    }
-
-    var _onSuiteEnd = reporter._onSuiteEnd.bind(reporter);
-
-    reporter._onSuiteEnd = function (suite) {
-      if (suite === rootSuite) {
-        // root suite took no time to execute
-        reporter._Date.clock.tick(0);
-      } else if (suite === suite1) {
-        // suite1 took an arbitrary amount of time that includes time to run each test + setup and teardown
-        reporter._Date.clock.tick(100001);
-      } else if (suite === suite2) {
-        reporter._Date.clock.tick(400005);
-      }
-
-      return _onSuiteEnd(suite);
-    };
-
-    runRunner(runner, callback);
-  }
-
-  function assertXmlEquals(actual, expected) {
-    expect(actual).xml.to.be.valid();
-    expect(actual).xml.to.equal(expected);
-  }
-
-  function verifyMochaFile(runner, path, options) {
-    var now = new Date().toISOString();
-    debug("verify", now);
-    var output = fs.readFileSync(path, "utf-8");
-    assertXmlEquals(output, mockXml(runner.stats, options));
-    debug("done", now);
-  }
-
-  function removeTestPath(callback) {
-    rimraf(__dirname + "/output", function (err) {
-      if (err) {
-        return callback(err);
-      }
-
-      // tests that exercise defaults will write to $CWD/test-results.xml
-      rimraf(__dirname + "/../test-results.xml", callback);
-    });
-  }
-
-  function createRunner() {
-    // mocha always has a root suite
-    var rootSuite = new Suite("", "root", true);
-
-    // We don't want Mocha to emit timeout errors.
-    // If we want to simulate errors, we'll emit them ourselves.
-    rootSuite.timeout(0);
-
-    return new Runner(rootSuite);
-  }
+  // helper functions moved to module scope
 
   function createReporter(options) {
     options = options || {};
     filePath = path.join(path.dirname(__dirname), options.mochaFile || "");
 
-    var mocha = new Mocha({
+    let mocha = new Mocha({
       reporter: Reporter,
       allowUncaught: true,
     });
@@ -189,29 +214,9 @@ describe("mocha-junit-reporter", function () {
     });
   }
 
-  function runRunner(runner, callback) {
-    runner.run(function (failureCount) {
-      if (runner.dispose) {
-        // Ensure uncaught exception handlers are cleared before we execute test assertions.
-        // Otherwise, this runner would intercept uncaught exceptions that were already handled by the mocha instance
-        // running our tests.
-        runner.dispose();
-      }
+  // helper functions moved to module scope
 
-      callback(failureCount);
-    });
-  }
-
-  function getFileNameWithHash(path) {
-    var filenames = fs.readdirSync(path);
-    var expected = /(^results\.)([a-f0-9]{32})(\.xml)$/i;
-
-    for (var i = 0; i < filenames.length; i++) {
-      if (expected.test(filenames[i])) {
-        return filenames[i];
-      }
-    }
-  }
+  // helper functions moved to module scope
 
   before(function (done) {
     // cache this
@@ -241,7 +246,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("can produce a JUnit XML report", function (done) {
-    var reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
+    let reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, filePath);
       done();
@@ -249,14 +254,14 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("can handle getXml being called twice", function () {
-    var reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
-    var testsuites = mockJunitSuites.withStringTimes();
+    let reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
+    let testsuites = mockJunitSuites.withStringTimes();
     reporter.getXml(testsuites);
   });
 
   it("respects `process.env.MOCHA_FILE`", function (done) {
     process.env.MOCHA_FILE = "test/output/results.xml";
-    var reporter = createReporter();
+    let reporter = createReporter();
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, process.env.MOCHA_FILE);
       done();
@@ -264,7 +269,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("respects `--reporter-options mochaFile=`", function (done) {
-    var reporter = createReporter({ mochaFile: "test/output/results.xml" });
+    let reporter = createReporter({ mochaFile: "test/output/results.xml" });
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, filePath);
       done();
@@ -272,9 +277,9 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("respects `[hash]` pattern in test results report filename", function (done) {
-    var dir = "test/output/";
-    var path = dir + "results.[hash].xml";
-    var reporter = createReporter({ mochaFile: path });
+    let dir = "test/output/";
+    let path = dir + "results.[hash].xml";
+    let reporter = createReporter({ mochaFile: path });
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, dir + getFileNameWithHash(dir));
       done();
@@ -282,9 +287,9 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("respects `[suiteFilename]` pattern in test results report filename", function (done) {
-    var dir = "test/output/";
-    var path = dir + "results.[suiteFilename].xml";
-    var reporter = createReporter({ mochaFile: path });
+    let dir = "test/output/";
+    let path = dir + "results.[suiteFilename].xml";
+    let reporter = createReporter({ mochaFile: path });
     runTests(reporter, function () {
       verifyMochaFile(
         reporter.runner,
@@ -299,9 +304,9 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("respects `[suiteName]` pattern in test results report filename", function (done) {
-    var dir = "test/output/";
-    var path = dir + "results.[suiteName].xml";
-    var reporter = createReporter({ mochaFile: path });
+    let dir = "test/output/";
+    let path = dir + "results.[suiteName].xml";
+    let reporter = createReporter({ mochaFile: path });
     runTests(reporter, function () {
       verifyMochaFile(
         reporter.runner,
@@ -315,7 +320,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("will create intermediate directories", function (done) {
-    var reporter = createReporter({ mochaFile: "test/output/foo/mocha.xml" });
+    let reporter = createReporter({ mochaFile: "test/output/foo/mocha.xml" });
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, filePath);
       done();
@@ -323,7 +328,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("creates valid XML report for invalid message", function (done) {
-    var reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
+    let reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
     runTests(reporter, { invalidChar: "\u001b" }, function () {
       assertXmlEquals(reporter._xml, mockXml(reporter.runner.stats));
       done();
@@ -331,7 +336,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("creates valid XML report even if title contains ANSI character sequences", function (done) {
-    var reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
+    let reporter = createReporter({ mochaFile: "test/output/mocha.xml" });
     runTests(reporter, { title: "[38;5;104m[1mFoo Bar" }, function () {
       verifyMochaFile(reporter.runner, filePath);
       done();
@@ -339,7 +344,7 @@ describe("mocha-junit-reporter", function () {
   });
 
   it('outputs pending tests if "includePending" is specified', function (done) {
-    var reporter = createReporter({
+    let reporter = createReporter({
       mochaFile: "test/output/mocha.xml",
       includePending: true,
     });
@@ -350,16 +355,16 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("can output to the console", function (done) {
-    var reporter = createReporter({
+    let reporter = createReporter({
       mochaFile: "test/output/console.xml",
       toConsole: true,
     });
 
-    var stdout = mockStdout();
+    let stdout = mockStdout();
     runTests(reporter, function () {
       verifyMochaFile(reporter.runner, filePath);
 
-      var xml = stdout.output[0];
+      let xml = stdout.output[0];
       assertXmlEquals(xml, mockXml(reporter.runner.stats));
 
       done();
@@ -367,15 +372,15 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("properly outputs tests when error in beforeAll", function (done) {
-    var reporter = createReporter();
-    var rootSuite = reporter.runner.suite;
-    var suite1 = Suite.create(rootSuite, "failing beforeAll");
+    let reporter = createReporter();
+    let rootSuite = reporter.runner.suite;
+    let suite1 = Suite.create(rootSuite, "failing beforeAll");
     suite1.beforeAll("failing hook", function () {
       throw new Error("error in before");
     });
     suite1.addTest(createTest("test 1"));
 
-    var suite2 = Suite.create(rootSuite, "good suite");
+    let suite2 = Suite.create(rootSuite, "good suite");
     suite2.addTest(createTest("test 2"));
 
     runRunner(reporter.runner, function () {
@@ -389,7 +394,7 @@ describe("mocha-junit-reporter", function () {
       );
       expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(2);
 
-      var failureMessage = '"before all" hook: failing hook';
+      let failureMessage = '"before all" hook: failing hook';
       if (!["2", "3", "4", "5"].includes(mochaVersion)) {
         // newer versions of Mocha include the name of the test in the message
         failureMessage += ' for "test 1"';
@@ -412,9 +417,9 @@ describe("mocha-junit-reporter", function () {
   });
 
   it("properly diffs errors from Chai", function (done) {
-    var reporter = createReporter();
-    var rootSuite = reporter.runner.suite;
-    var suite1 = Suite.create(rootSuite, "failing with Chai");
+    let reporter = createReporter();
+    let rootSuite = reporter.runner.suite;
+    let suite1 = Suite.create(rootSuite, "failing with Chai");
     suite1.addTest(
       createTest("test 1", function () {
         expect({}).to.deep.equal({ missingProperty: true });
@@ -448,13 +453,13 @@ describe("mocha-junit-reporter", function () {
 
   describe('when "outputs" option is specified', function () {
     it("adds output/error lines to xml report", function (done) {
-      var reporter = createReporter({ outputs: true });
+      let reporter = createReporter({ outputs: true });
 
-      var test = createTest("has outputs");
+      let test = createTest("has outputs");
       test.consoleOutputs = ["hello", "world"];
       test.consoleErrors = ["typical diagnostic info", "all is OK"];
 
-      var suite = Suite.create(
+      let suite = Suite.create(
         reporter.runner.suite,
         "with console output and error"
       );
@@ -487,9 +492,9 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not add system-out if no outputs/errors were passed", function (done) {
-      var reporter = createReporter({ outputs: true });
-      var test = createTest("has outputs");
-      var suite = Suite.create(
+      let reporter = createReporter({ outputs: true });
+      let test = createTest("has outputs");
+      let suite = Suite.create(
         reporter.runner.suite,
         "with console output and error"
       );
@@ -512,12 +517,12 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not add system-out if outputs/errors were empty", function (done) {
-      var reporter = createReporter({ outputs: true });
-      var test = createTest("has outputs");
+      let reporter = createReporter({ outputs: true });
+      let test = createTest("has outputs");
       test.consoleOutputs = [];
       test.consoleErrors = [];
 
-      var suite = Suite.create(
+      let suite = Suite.create(
         reporter.runner.suite,
         "with console output and error"
       );
@@ -542,12 +547,12 @@ describe("mocha-junit-reporter", function () {
 
   describe('when "attachments" option is specified', function () {
     it("adds attachments to xml report", function (done) {
-      var filePath = "/path/to/file";
-      var reporter = createReporter({ attachments: true });
-      var test = createTest("has attachment");
+      let filePath = "/path/to/file";
+      let reporter = createReporter({ attachments: true });
+      let test = createTest("has attachment");
       test.attachments = [filePath];
 
-      var suite = Suite.create(reporter.runner.suite, "with attachments");
+      let suite = Suite.create(reporter.runner.suite, "with attachments");
       suite.addTest(test);
 
       runRunner(reporter.runner, function () {
@@ -571,10 +576,10 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not add system-out if no attachments were passed", function (done) {
-      var reporter = createReporter({ attachments: true });
-      var test = createTest("has attachment");
+      let reporter = createReporter({ attachments: true });
+      let test = createTest("has attachment");
 
-      var suite = Suite.create(reporter.runner.suite, "with attachments");
+      let suite = Suite.create(reporter.runner.suite, "with attachments");
       suite.addTest(test);
 
       runRunner(reporter.runner, function () {
@@ -595,11 +600,11 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not add system-out if attachments array is empty", function (done) {
-      var reporter = createReporter({ attachments: true });
-      var test = createTest("has attachment");
+      let reporter = createReporter({ attachments: true });
+      let test = createTest("has attachment");
       test.attachments = [];
 
-      var suite = Suite.create(reporter.runner.suite, "with attachments");
+      let suite = Suite.create(reporter.runner.suite, "with attachments");
       suite.addTest(test);
 
       runRunner(reporter.runner, function () {
@@ -620,13 +625,13 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("includes both console outputs and attachments in XML", function (done) {
-      var reporter = createReporter({ attachments: true, outputs: true });
-      var test = createTest("has attachment");
-      var filePath = "/path/to/file";
+      let reporter = createReporter({ attachments: true, outputs: true });
+      let test = createTest("has attachment");
+      let filePath = "/path/to/file";
       test.attachments = [filePath];
       test.consoleOutputs = ["first console line", "second console line"];
 
-      var suite = Suite.create(
+      let suite = Suite.create(
         reporter.runner.suite,
         "with attachments and outputs"
       );
@@ -662,8 +667,8 @@ describe("mocha-junit-reporter", function () {
 
   describe("Output", function () {
     it("skips suites with empty title", function (done) {
-      var reporter = createReporter();
-      var suite = Suite.create(reporter.runner.suite, "");
+      let reporter = createReporter();
+      let suite = Suite.create(reporter.runner.suite, "");
       suite.root = false; // mocha treats suites with empty title as root, so not sure this is possible
       suite.addTest(createTest("test"));
 
@@ -677,7 +682,7 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("skips suites without testcases and suites", function (done) {
-      var reporter = createReporter();
+      let reporter = createReporter();
       Suite.create(reporter.runner.suite, "empty suite");
 
       // mocha won't emit the `suite` event if a suite has no tests in it, so we won't even output the root suite.
@@ -689,8 +694,8 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("skips suites without testcases even if they have nested suites", function (done) {
-      var reporter = createReporter();
-      var suite1 = Suite.create(reporter.runner.suite, "suite");
+      let reporter = createReporter();
+      let suite1 = Suite.create(reporter.runner.suite, "suite");
       Suite.create(suite1, "nested suite");
 
       runRunner(reporter.runner, function () {
@@ -701,8 +706,8 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not skip suites with nested tests", function (done) {
-      var reporter = createReporter();
-      var suite = Suite.create(reporter.runner.suite, "nested suite");
+      let reporter = createReporter();
+      let suite = Suite.create(reporter.runner.suite, "nested suite");
       suite.addTest(createTest("test"));
 
       runRunner(reporter.runner, function () {
@@ -721,7 +726,7 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("does not skip root suite", function (done) {
-      var reporter = createReporter();
+      let reporter = createReporter();
       reporter.runner.suite.addTest(createTest("test"));
 
       runRunner(reporter.runner, function () {
@@ -733,7 +738,7 @@ describe("mocha-junit-reporter", function () {
           1
         );
 
-        var expectedName = "test";
+        let expectedName = "test";
         if (["2", "3"].includes(mochaVersion)) {
           expectedName = " " + expectedName;
         }
@@ -745,7 +750,7 @@ describe("mocha-junit-reporter", function () {
     });
 
     it('uses "Mocha Tests" by default', function (done) {
-      var reporter = createReporter();
+      let reporter = createReporter();
       reporter.runner.suite.addTest(createTest("test"));
 
       runRunner(reporter.runner, function () {
@@ -758,14 +763,14 @@ describe("mocha-junit-reporter", function () {
 
   describe("GitLab format", function () {
     it("generates GitLab compatible classnames and test names", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Authentication Tests");
-      var suite2 = Suite.create(suite1, "LoginTest");
+      let suite1 = Suite.create(rootSuite, "Authentication Tests");
+      let suite2 = Suite.create(suite1, "LoginTest");
       suite2.addTest(createTest("test_invalid_password"));
 
-      var suite3 = Suite.create(suite1, "LogoutTest");
+      let suite3 = Suite.create(suite1, "LogoutTest");
       suite3.addTest(
         createTest("test_session_cleanup", function (done) {
           done(new Error("session cleanup failed"));
@@ -794,17 +799,17 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("includes file attribute in testcases", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_file");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_with_file");
       // Use a relative path
       test.file = "test/file.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         expect(testcase._attr.file).to.equal("test/file.js");
 
         done();
@@ -812,12 +817,12 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("uses dot separator for suite titles", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Level 1");
-      var suite2 = Suite.create(suite1, "Level 2");
-      var suite3 = Suite.create(suite2, "Level 3");
+      let suite1 = Suite.create(rootSuite, "Level 1");
+      let suite2 = Suite.create(suite1, "Level 2");
+      let suite3 = Suite.create(suite2, "Level 3");
       suite3.addTest(createTest("nested test"));
 
       runRunner(reporter.runner, function () {
@@ -833,16 +838,16 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("generates well-formed XML", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Authentication Tests");
-      var suite2 = Suite.create(suite1, "LoginTest");
-      var test = createTest("test_valid_login");
+      let suite1 = Suite.create(rootSuite, "Authentication Tests");
+      let suite2 = Suite.create(suite1, "LoginTest");
+      let test = createTest("test_valid_login");
       test.file = "test/auth_test.js";
       suite2.addTest(test);
 
-      var suite3 = Suite.create(rootSuite, "Another Suite");
+      let suite3 = Suite.create(rootSuite, "Another Suite");
       suite3.addTest(
         createTest("test_failure", function (done) {
           done(new Error("failed test"));
@@ -867,12 +872,12 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("includes attachments in system-out", function (done) {
-      var filePath = "/path/to/screenshot.png";
-      var reporter = createReporter({ attachments: true });
-      var rootSuite = reporter.runner.suite;
+      let filePath = "/path/to/screenshot.png";
+      let reporter = createReporter({ attachments: true });
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_screenshot");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_with_screenshot");
       test.attachments = [filePath];
       suite1.addTest(test);
 
@@ -887,16 +892,16 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("correctly handles tests without file attribute", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_without_file");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_without_file");
       // Deliberately not setting test.file
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // File attribute should not be present if test.file is not set
         expect(testcase._attr.file).to.be.undefined;
 
@@ -905,13 +910,13 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("converts absolute file paths to relative paths", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_absolute_path");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_with_absolute_path");
       // Set an absolute path that should be converted to relative
-      var absolutePath = require("path").join(
+      let absolutePath = path.join(
         process.cwd(),
         "test",
         "example.js"
@@ -920,9 +925,9 @@ describe("mocha-junit-reporter", function () {
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // File should be relative to cwd
-        expect(testcase._attr.file).to.equal("test/example.js");
+        expect(testcase._attr.file).to.equal(path.join("test", "example.js"));
         // Should NOT be an absolute path
         expect(testcase._attr.file).not.to.include(process.cwd());
 
@@ -932,16 +937,16 @@ describe("mocha-junit-reporter", function () {
 
 
     it("does not transform file paths when pattern is not configured", function (done) {
-      var reporter = createReporter();
-      var rootSuite = reporter.runner.suite;
+      let reporter = createReporter();
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_without_transformation");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_without_transformation");
       test.file = "build/modules/test.spec.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // File path should remain unchanged
         expect(testcase._attr.file).to.equal("build/modules/test.spec.js");
 
@@ -952,16 +957,16 @@ describe("mocha-junit-reporter", function () {
     it("can enable console reporter", function (done) {
       // This test verifies that the consoleReporter option doesn't break the reporter
       // We can't easily test the console output itself, but we can verify the reporter still works
-      var reporter = createReporter({
+      let reporter = createReporter({
         consoleReporter: "spec"
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
       suite1.addTest(createTest("test_with_console_reporter"));
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         expect(testcase._attr.name).to.equal("test_with_console_reporter");
 
         done();
@@ -969,19 +974,19 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("transforms file paths using multiple pattern pairs", function (done) {
-      var reporter = createReporter({
-        filePathTransforms: "[{search: '^build/'| replace: 'src/'}|{search: '\\.spec\\.js$'| replace: '.js'}]"
+      let reporter = createReporter({
+        filePathTransforms: String.raw`[{search: '^build/'| replace: 'src/'}|{search: '\.spec\.js$'| replace: '.js'}]`
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_multiple_transforms");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_with_multiple_transforms");
       // Set a file path that will be transformed by both patterns
       test.file = "build/modules/memberData/tasks/transfer.spec.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // File path should have both transformations applied
         expect(testcase._attr.file).to.equal("src/modules/memberData/tasks/transfer.js");
 
@@ -990,18 +995,18 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("applies transformations sequentially", function (done) {
-      var reporter = createReporter({
+      let reporter = createReporter({
         filePathTransforms: "[{search: 'build'| replace: 'src'}|{search: 'src/'| replace: 'source/'}]"
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_sequential_transforms");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_sequential_transforms");
       test.file = "build/test.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // First transform: "build" -> "src" = "src/test.js"
         // Second transform: "src/" -> "source/" = "source/test.js"
         expect(testcase._attr.file).to.equal("source/test.js");
@@ -1011,18 +1016,18 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("supports single transform pattern", function (done) {
-      var reporter = createReporter({
+      let reporter = createReporter({
         filePathTransforms: "{search: '^build/'| replace: 'src/'}"
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_with_single_pattern");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_with_single_pattern");
       test.file = "build/test.spec.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         expect(testcase._attr.file).to.equal("src/test.spec.js");
 
         done();
@@ -1056,21 +1061,21 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("supports JSON string format for filePathTransforms", function (done) {
-      var reporter = createReporter({
+      let reporter = createReporter({
         filePathTransforms: JSON.stringify([
-          { search: "^build/", replace: "src/" },
-          { search: "\\.spec\\.js$", replace: ".js" }
-        ])
+            { search: "^build/", replace: "src/" },
+            { search: String.raw`\.spec\.js$`, replace: ".js" }
+          ])
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_json_string");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_json_string");
       test.file = "build/test.spec.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         expect(testcase._attr.file).to.equal("src/test.js");
 
         done();
@@ -1087,18 +1092,18 @@ describe("mocha-junit-reporter", function () {
 
     it("supports pipe-delimited format for CLI usage", function (done) {
       // This format is easier for CLI where commas can be problematic
-      var reporter = createReporter({
-        filePathTransforms: "[{search: '^build/'| replace: 'src/'}|{search: '\\.spec\\.js$'| replace: '.js'}]"
+      let reporter = createReporter({
+        filePathTransforms: String.raw`[{search: '^build/'| replace: 'src/'}|{search: '\.spec\.js$'| replace: '.js'}]`
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_pipe_delimited");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_pipe_delimited");
       test.file = "build/test.spec.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         expect(testcase._attr.file).to.equal("src/test.js");
 
         done();
@@ -1106,18 +1111,18 @@ describe("mocha-junit-reporter", function () {
     });
 
     it("supports pipe-delimited format with spaces", function (done) {
-      var reporter = createReporter({
+      let reporter = createReporter({
         filePathTransforms: "[{search: '^build/' | replace: 'src/'} | {search: '^src/' | replace: 'src2/'}]"
       });
-      var rootSuite = reporter.runner.suite;
+      let rootSuite = reporter.runner.suite;
 
-      var suite1 = Suite.create(rootSuite, "Test Suite");
-      var test = createTest("test_pipe_with_spaces");
+      let suite1 = Suite.create(rootSuite, "Test Suite");
+      let test = createTest("test_pipe_with_spaces");
       test.file = "build/test.js";
       suite1.addTest(test);
 
       runRunner(reporter.runner, function () {
-        var testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        let testcase = reporter._testsuites[1].testsuite[1].testcase[0];
         // First: "build/test.js" -> "src/test.js"
         // Second: "src/test.js" -> "src2/test.js"
         expect(testcase._attr.file).to.equal("src2/test.js");

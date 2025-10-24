@@ -16,7 +16,7 @@ GitLab CI has specific requirements for JUnit XML format to properly display tes
 ## Installation
 
 ```shell
-$ npm install mocha-gitlab-reporter --save-dev
+npm install mocha-gitlab-reporter --save-dev
 ```
 
 ## Usage
@@ -24,7 +24,7 @@ $ npm install mocha-gitlab-reporter --save-dev
 Run mocha with `mocha-gitlab-reporter`:
 
 ```shell
-$ mocha test --reporter mocha-gitlab-reporter
+mocha test --reporter mocha-gitlab-reporter
 ```
 
 This will output a results file at `./test-results.xml`.
@@ -50,6 +50,7 @@ test:
 ### Proper Test Hierarchy
 
 The reporter automatically generates XML with the correct structure for GitLab:
+
 - `testcase classname` = full suite hierarchy (e.g., "API Tests.UserController")
 - `testcase name` = individual test name (e.g., "should create user")
 - Suite titles are always separated by `.` for clean display in GitLab
@@ -74,13 +75,13 @@ module.exports = {
 Or via command line:
 
 ```shell
-$ mocha test --reporter mocha-gitlab-reporter --reporter-options consoleReporter=spec
+mocha test --reporter mocha-gitlab-reporter --reporter-options consoleReporter=spec
 ```
 
 Or via environment variable:
 
 ```shell
-$ CONSOLE_REPORTER=spec mocha test --reporter mocha-gitlab-reporter
+CONSOLE_REPORTER=spec mocha test --reporter mocha-gitlab-reporter
 ```
 
 Any built-in Mocha reporter name (`spec`, `dot`, `nyan`, `tap`, `landing`, `list`, `progress`, `json`, `min`, etc.) or a custom reporter module can be used.
@@ -103,13 +104,13 @@ module.exports = {
 Or via command line:
 
 ```shell
-$ mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
 ```
 
 Or via environment variable:
 
 ```shell
-$ MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
+MOCHA_FILE=./path_to_your/file.xml mocha test --reporter mocha-gitlab-reporter --reporter-options mochaFile=./path_to_your/file.xml
 ```
 
 ### File Path Transformation
@@ -141,9 +142,11 @@ module.exports = {
 ```
 
 This will transform paths like:
+
 - `build/modules/example.spec.js`
 
 To:
+
 - `src/modules/example.test.ts`
 
 The transformations are applied in order, so the output of the first transformation becomes the input to the second transformation.
@@ -174,7 +177,6 @@ module.exports = {
     ]
 };
 ```
-
 
 ### Attachments Support
 
@@ -208,7 +210,7 @@ module.exports = {
 | consoleReporter         | `null`               | Name of a Mocha reporter to also output to console (e.g., `"spec"`, `"dot"`, `"nyan"`)           |
 | outputs                 | `false`              | If set to truthy value will include console output and console error output                      |
 | attachments             | `false`              | If set to truthy value will attach files to report in JUnit Attachments Plugin format            |
-| filePathTransforms      | `null`               | String with pipe-delimited transformations (e.g., `"[{search: '^build/'| replace: 'src/'}]"`) |
+| filePathTransforms      | `null`               | String with pipe-delimited transformations (e.g., `"[{search: '^build/'\| replace: 'src/'}]"`) |
 
 ### Results Report Filename Placeholders
 
@@ -250,6 +252,7 @@ Here's what the XML output looks like:
 ```
 
 Note how:
+
 - `classname="API Tests.UserController"` - This is what GitLab displays as the suite name
 - `name="should create user"` - This is the individual test name
 - `file="test/api/user-test.js"` - Relative path for navigation
