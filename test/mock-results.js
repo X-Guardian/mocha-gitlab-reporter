@@ -1,6 +1,7 @@
 'use strict';
 
-const xml = require('xml');
+// Import the custom XML builder
+const { toXml } = require('../src/lib/xml-builder');
 
 module.exports = function(stats) {
   const data = {
@@ -146,5 +147,5 @@ module.exports = function(stats) {
     });
   }
 
-  return xml(data, {declaration: true});
+  return toXml(data, {declaration: true, indent: '  '});
 };

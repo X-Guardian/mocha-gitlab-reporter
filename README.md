@@ -216,13 +216,11 @@ module.exports = {
 
 Results XML filename can contain placeholders for dynamic values:
 
-| placeholder         | output                                            |
-| ------------------- | ------------------------------------------------- |
-| `[hash]`            | MD5 hash of test results XML                      |
-| `[testsuitesTitle]` | Fixed value: "Mocha Tests"                        |
-| `[rootSuiteTitle]`  | Fixed value: "Root Suite"                         |
-| `[suiteFilename]`   | Filename of the spec file                         |
-| `[suiteName]`       | Name of the first test suite                      |
+| placeholder       | output                           |
+| ----------------- | -------------------------------- |
+| `[hash]`          | MD5 hash of test results XML     |
+| `[suiteFilename]` | Filename of the spec file        |
+| `[suiteName]`     | Name of the first test suite     |
 
 Example:
 

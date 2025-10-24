@@ -1,6 +1,5 @@
 "use strict";
 
-const xml = require("xml");
 const mocha = require("mocha");
 const Base = mocha.reporters.Base;
 const fs = require("node:fs");
@@ -8,6 +7,7 @@ const path = require("node:path");
 const debug = require("debug")("mocha-gitlab-reporter");
 const crypto = require("node:crypto");
 const stripAnsi = require("strip-ansi");
+const { toXml } = require("./lib/xml-builder");
 
 // Save timer references so that times are correct even if Date is stubbed.
 // See https://github.com/mochajs/mocha/issues/237
@@ -618,15 +618,6 @@ class MochaGitLabReporter {
       reportFilename = reportFilename.replace("[hash]", hash);
     }
 
-    if (reportFilename.includes("[testsuitesTitle]")) {
-      reportFilename = reportFilename.replace(
-        "[testsuitesTitle]",
-        "Mocha Tests"
-      );
-    }
-    if (reportFilename.includes("[rootSuiteTitle]")) {
-      reportFilename = reportFilename.replace("[rootSuiteTitle]", "Root Suite");
-    }
     if (reportFilename.includes("[suiteFilename]")) {
       reportFilename = reportFilename.replace(
         "[suiteFilename]",
@@ -700,7 +691,7 @@ class MochaGitLabReporter {
     }
     testsuites = [rootSuite].concat(testsuites);
 
-    return xml({ testsuites: testsuites }, { declaration: true, indent: "  " });
+    return toXml({ testsuites: testsuites }, { declaration: true, indent: "  " });
   }
 
   /**
@@ -724,3 +715,5 @@ class MochaGitLabReporter {
 }
 
 module.exports = MochaGitLabReporter;
+// Re-export XML builder for testing
+module.exports.toXml = require("./lib/xml-builder").toXml;

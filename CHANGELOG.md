@@ -7,17 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `engines` field to `package.json` specifying Node.js >= 14.14.0 requirement
+- Created separate `lib/xml-builder.js` module for XML generation functions
+
 ### Changed
 
 - Refined code to fix linting issues
-- Replaced `mkdirp` dependency with `fs.mkdirSync`
-- Replaced `md5` dependency with `crypto.createHash`
-- Replaced `rimraf` devDependency with `fs.promises.rm`
-- Added `engines` field to `package.json` to specify supported Node.js versions
+- Reorganized project structure: moved source code to `src/` directory
+
+### Removed
+
+- Removed `mkdirp` dependency (replaced with native `fs.mkdirSync()`)
+- Removed `md5` dependency (replaced with `crypto.createHash()`)
+- Removed `rimraf` devDependency (replaced with native `fs.promises.rm()`)
+- Removed `xml` dependency (replaced with custom XML builder)
+- Removed redundant `[testsuitesTitle]` and `[rootSuiteTitle]` filename placeholders (were constants)
 
 ### Fixed
 
-- Fixed issue where file paths were not being correctly read from parent suites
+- Fixed issue where file paths were not correctly inherited from parent suites through multiple nesting levels
 
 ## [1.0.0]
 

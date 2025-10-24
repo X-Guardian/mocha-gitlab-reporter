@@ -1,7 +1,7 @@
 /* eslint-env mocha */
 "use strict";
 
-const Reporter = require("../index");
+const Reporter = require("../src/index");
 
 const mochaVersion = process.env.MOCHA_VERSION || "";
 const Mocha = require("mocha" + mochaVersion);
