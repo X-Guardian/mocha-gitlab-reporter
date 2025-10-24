@@ -1,11 +1,6 @@
 'use strict';
 
-const {
-  SPECIAL_PROPS,
-  XML_ENTITIES,
-  DEFAULTS,
-  FORMAT,
-} = require('./xml-constants');
+const { SPECIAL_PROPS, XML_ENTITIES, DEFAULTS, FORMAT } = require('./xml-constants');
 
 // ============================================================================
 // FUNCTIONS
@@ -37,7 +32,7 @@ function escapeXml(str) {
  */
 function buildXml(obj, options = {}, depth = FORMAT.INITIAL_DEPTH) {
   if (Array.isArray(obj)) {
-    return obj.map(item => buildXml(item, options, depth)).join('');
+    return obj.map((item) => buildXml(item, options, depth)).join('');
   }
 
   if (typeof obj !== 'object' || obj === null) {
@@ -51,9 +46,10 @@ function buildXml(obj, options = {}, depth = FORMAT.INITIAL_DEPTH) {
 
     if (Array.isArray(value)) {
       // Check if this is a wrapper element (first item has _attr, rest are children)
-      const hasWrapperPattern = value.length > 0 &&
-                                 value[0]?.[SPECIAL_PROPS.ATTR] &&
-                                 value.slice(1).some(item => typeof item === 'object' && !item[SPECIAL_PROPS.ATTR]);
+      const hasWrapperPattern =
+        value.length > 0 &&
+        value[0]?.[SPECIAL_PROPS.ATTR] &&
+        value.slice(1).some((item) => typeof item === 'object' && !item[SPECIAL_PROPS.ATTR]);
 
       if (hasWrapperPattern) {
         // Treat array as single element with attributes and children
@@ -63,11 +59,14 @@ function buildXml(obj, options = {}, depth = FORMAT.INITIAL_DEPTH) {
           .map(([k, v]) => ` ${k}="${escapeXml(v)}"`)
           .join('');
 
-        const childrenXml = value.slice(1).map(item => buildXml(item, options, depth + 1)).join('');
+        const childrenXml = value
+          .slice(1)
+          .map((item) => buildXml(item, options, depth + 1))
+          .join('');
         xml += `${indentStr}<${key}${attributes}>\n${childrenXml}${indentStr}</${key}>\n`;
       } else {
         // Array of sibling elements with same tag name
-        xml += value.map(item => buildXmlElement(key, item, options, depth)).join('');
+        xml += value.map((item) => buildXmlElement(key, item, options, depth)).join('');
       }
     } else {
       xml += buildXmlElement(key, value, options, depth);
@@ -113,7 +112,7 @@ function buildXmlElement(tagName, content, options, depth) {
   }
 
   // Check if there's actual content (excluding _attr)
-  const contentKeys = Object.keys(content).filter(k => k !== SPECIAL_PROPS.ATTR);
+  const contentKeys = Object.keys(content).filter((k) => k !== SPECIAL_PROPS.ATTR);
 
   if (contentKeys.length === 0) {
     // Empty element with attributes - use opening and closing tags
@@ -157,6 +156,5 @@ module.exports = {
   escapeXml,
   buildXml,
   buildXmlElement,
-  toXml
+  toXml,
 };
-

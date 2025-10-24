@@ -1,13 +1,13 @@
-"use strict";
+'use strict';
 
-const mocha = require("mocha");
+const mocha = require('mocha');
 const Base = mocha.reporters.Base;
-const fs = require("node:fs");
-const path = require("node:path");
-const debug = require("debug")("mocha-gitlab-reporter");
-const crypto = require("node:crypto");
-const stripAnsi = require("strip-ansi");
-const { toXml } = require("./lib/xml-builder");
+const fs = require('node:fs');
+const path = require('node:path');
+const debug = require('debug')('mocha-gitlab-reporter');
+const crypto = require('node:crypto');
+const stripAnsi = require('strip-ansi');
+const { toXml } = require('./lib/xml-builder');
 const {
   DEFAULTS,
   ENV_VARS,
@@ -19,11 +19,7 @@ const {
   MOCHA_VERSION,
   XML_OPTIONS,
   INVALID_CHARACTERS_REGEX,
-} = require("./constants");
-
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
+} = require('./constants');
 
 // Save timer references so that times are correct even if Date is stubbed.
 // See https://github.com/mochajs/mocha/issues/237
@@ -34,16 +30,10 @@ let mocha6plus = false;
 
 try {
   const json = JSON.parse(
-    fs.readFileSync(
-      path.dirname(require.resolve("mocha")) + FILE_CONSTANTS.PACKAGE_JSON_PATH,
-      FILE_CONSTANTS.ENCODING
-    )
+    fs.readFileSync(path.dirname(require.resolve('mocha')) + FILE_CONSTANTS.PACKAGE_JSON_PATH, FILE_CONSTANTS.ENCODING)
   );
   const version = json.version;
-  const majorVersion = Number.parseInt(
-    version.split(".")[MOCHA_VERSION.VERSION_INDEX_MAJOR],
-    MOCHA_VERSION.RADIX
-  );
+  const majorVersion = Number.parseInt(version.split('.')[MOCHA_VERSION.VERSION_INDEX_MAJOR], MOCHA_VERSION.RADIX);
   if (majorVersion >= MOCHA_VERSION.MIN_FOR_STATS_COLLECTOR) {
     createStatsCollector = require(FILE_CONSTANTS.MOCHA_STATS_COLLECTOR_PATH);
     mocha6plus = true;
@@ -68,25 +58,13 @@ try {
  * @throws {TypeError} If filePathTransforms has invalid format
  */
 function configureDefaults(options) {
-  debug("configureDefaults: Received Mocha options:", JSON.stringify(options, null, 2));
+  debug('configureDefaults: Received Mocha options:', JSON.stringify(options, null, 2));
   const config = options?.reporterOptions ?? {};
-  debug("configureDefaults: Extracted reporter options:", JSON.stringify(config, null, 2));
-  config.mochaFile = getSetting(
-    config.mochaFile,
-    ENV_VARS.MOCHA_FILE,
-    DEFAULTS.MOCHA_FILE
-  );
-  config.attachments = getSetting(
-    config.attachments,
-    ENV_VARS.ATTACHMENTS,
-    DEFAULTS.ATTACHMENTS
-  );
+  debug('configureDefaults: Extracted reporter options:', JSON.stringify(config, null, 2));
+  config.mochaFile = getSetting(config.mochaFile, ENV_VARS.MOCHA_FILE, DEFAULTS.MOCHA_FILE);
+  config.attachments = getSetting(config.attachments, ENV_VARS.ATTACHMENTS, DEFAULTS.ATTACHMENTS);
   config.toConsole = !!config.toConsole;
-  config.consoleReporter = getSetting(
-    config.consoleReporter,
-    ENV_VARS.CONSOLE_REPORTER,
-    DEFAULTS.CONSOLE_REPORTER
-  );
+  config.consoleReporter = getSetting(config.consoleReporter, ENV_VARS.CONSOLE_REPORTER, DEFAULTS.CONSOLE_REPORTER);
 
   // Normalize to array of pattern pairs
   let transforms = [];
@@ -132,12 +110,12 @@ function configureDefaults(options) {
   // Pre-compile regex patterns to avoid recompiling on every test case
   config.filePathTransforms = compileFilePathTransforms(transforms);
 
-  debug("configureDefaults: Final configuration:", {
+  debug('configureDefaults: Final configuration:', {
     mochaFile: config.mochaFile,
     attachments: config.attachments,
     toConsole: config.toConsole,
     consoleReporter: config.consoleReporter,
-    filePathTransforms: config.filePathTransforms
+    filePathTransforms: config.filePathTransforms,
   });
   return config;
 }
@@ -161,13 +139,15 @@ function parseFilePathTransforms(input) {
     parsed = JSON.parse(input);
   } catch (e) {
     // Not valid JSON; rethrow a clearer error for the caller
-    throw new TypeError("filePathTransforms must be valid JSON. Error: " + e.message);
+    throw new TypeError('filePathTransforms must be valid JSON. Error: ' + e.message);
   }
 
   if (Array.isArray(parsed)) {
     for (const [index, transform] of parsed.entries()) {
       if (!transform?.[TRANSFORM_PROPS.SEARCH] || !transform?.[TRANSFORM_PROPS.REPLACE]) {
-        throw new TypeError(`filePathTransforms[${index}] must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`);
+        throw new TypeError(
+          `filePathTransforms[${index}] must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`
+        );
       }
     }
     return parsed;
@@ -175,7 +155,9 @@ function parseFilePathTransforms(input) {
 
   if (typeof parsed === 'object' && parsed !== null) {
     if (!parsed[TRANSFORM_PROPS.SEARCH] || !parsed[TRANSFORM_PROPS.REPLACE]) {
-      throw new TypeError(`filePathTransforms must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`);
+      throw new TypeError(
+        `filePathTransforms must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`
+      );
     }
     return [parsed];
   }
@@ -206,20 +188,20 @@ function compileFilePathTransforms(transforms) {
       return {
         [TRANSFORM_PROPS.PATTERN]: new RegExp(transform[TRANSFORM_PROPS.SEARCH]),
         [TRANSFORM_PROPS.REPLACE]: transform[TRANSFORM_PROPS.REPLACE],
-        [TRANSFORM_PROPS.RAW]: transform // Keep original for debugging
+        [TRANSFORM_PROPS.RAW]: transform, // Keep original for debugging
       };
     } catch (error) {
       debug(`compileFilePathTransforms: Failed to compile transform[${index}]:`, {
         transform,
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       // Return a transform that will be skipped (invalid pattern)
       return {
         [TRANSFORM_PROPS.PATTERN]: null,
         [TRANSFORM_PROPS.REPLACE]: transform[TRANSFORM_PROPS.REPLACE],
         [TRANSFORM_PROPS.RAW]: transform,
-        [TRANSFORM_PROPS.ERROR]: error.message
+        [TRANSFORM_PROPS.ERROR]: error.message,
       };
     }
   });
@@ -262,7 +244,7 @@ function isSafeReporterName(name) {
 function getSetting(value, key, defaultVal, transform) {
   if (process.env[key] !== undefined) {
     const envVal = process.env[key];
-    return typeof transform === "function" ? transform(envVal) : envVal;
+    return typeof transform === 'function' ? transform(envVal) : envVal;
   }
   if (value !== undefined) {
     return value;
@@ -276,10 +258,7 @@ function getSetting(value, key, defaultVal, transform) {
  * @returns {boolean} true if the suite is invalid, false otherwise
  */
 function isInvalidSuite(suite) {
-  return (
-    (!suite.root && suite.title === "") ||
-    (suite.tests.length === 0 && suite.suites.length === 0)
-  );
+  return (!suite.root && suite.title === '') || (suite.tests.length === 0 && suite.suites.length === 0);
 }
 
 /**
@@ -296,7 +275,7 @@ function getGitLabSuiteClassname(test) {
     }
     parent = parent.parent;
   }
-  return titles.join(".");
+  return titles.join('.');
 }
 
 /**
@@ -341,18 +320,18 @@ class MochaGitLabReporter {
         // Try to require as a module, but only for safe module names
         try {
           ConsoleReporter = require(reporterName);
-          debug("constructor: Successfully loaded console reporter module:", reporterName);
+          debug('constructor: Successfully loaded console reporter module:', reporterName);
         } catch (error_) {
-          debug("constructor: Could not load console reporter module:", {
+          debug('constructor: Could not load console reporter module:', {
             reporterName,
             error: error_.message,
-            code: error_.code
+            code: error_.code,
           });
         }
       } else {
-        debug("constructor: Refusing to load unsafe console reporter name:", {
+        debug('constructor: Refusing to load unsafe console reporter name:', {
           reporterName,
-          reason: "Name contains unsafe characters"
+          reason: 'Name contains unsafe characters',
         });
       }
 
@@ -364,22 +343,22 @@ class MochaGitLabReporter {
 
     // remove old results
     this._runner.on(
-      "start",
+      'start',
       function () {
         try {
           fs.unlinkSync(this._options.mochaFile);
-          debug("runner.start: Successfully removed existing report file:", this._options.mochaFile);
+          debug('runner.start: Successfully removed existing report file:', this._options.mochaFile);
         } catch (error) {
           // Ignore ENOENT (file doesn't exist) - that's expected on first run
           if (error.code !== ERROR_CODES.FILE_NOT_FOUND) {
             console.warn(`Warning: Could not remove existing report file ${this._options.mochaFile}: ${error.message}`);
-            debug("runner.start: Error removing report file:", {
+            debug('runner.start: Error removing report file:', {
               file: this._options.mochaFile,
               errorCode: error.code,
-              errorMessage: error.message
+              errorMessage: error.message,
             });
           } else {
-            debug("runner.start: Report file does not exist (expected on first run):", this._options.mochaFile);
+            debug('runner.start: Report file does not exist (expected on first run):', this._options.mochaFile);
           }
         }
       }.bind(this)
@@ -392,7 +371,7 @@ class MochaGitLabReporter {
     };
 
     this._runner.on(
-      "suite",
+      'suite',
       function (suite) {
         // allow tests to mock _onSuiteBegin
         return this._onSuiteBegin(suite);
@@ -410,7 +389,7 @@ class MochaGitLabReporter {
     };
 
     this._runner.on(
-      "suite end",
+      'suite end',
       function (suite) {
         // allow tests to mock _onSuiteEnd
         return this._onSuiteEnd(suite);
@@ -418,14 +397,14 @@ class MochaGitLabReporter {
     );
 
     this._runner.on(
-      "pass",
+      'pass',
       function (test) {
         lastSuite().push(this.getTestcaseData(test));
       }.bind(this)
     );
 
     this._runner.on(
-      "fail",
+      'fail',
       function (test, err) {
         lastSuite().push(this.getTestcaseData(test, err));
       }.bind(this)
@@ -433,7 +412,7 @@ class MochaGitLabReporter {
 
     if (this._options.includePending) {
       this._runner.on(
-        "pending",
+        'pending',
         function (test) {
           const testcase = this.getTestcaseData(test);
 
@@ -444,7 +423,7 @@ class MochaGitLabReporter {
     }
 
     this._runner.on(
-      "end",
+      'end',
       function () {
         this.flush(testsuites);
       }.bind(this)
@@ -458,7 +437,7 @@ class MochaGitLabReporter {
    */
   getTestsuiteData(suite) {
     // GitLab uses testcase classname, not testsuite name, so just use simple suite title
-    const suiteName = suite.root && suite.title === "" ? DEFAULTS.ROOT_SUITE_NAME : stripAnsi(suite.title);
+    const suiteName = suite.root && suite.title === '' ? DEFAULTS.ROOT_SUITE_NAME : stripAnsi(suite.title);
     const _attr = {
       name: suiteName,
       timestamp: this._Date.now(),
@@ -486,11 +465,11 @@ class MochaGitLabReporter {
         }
       }
       this._suiteFileCache.set(suite, cachedFile);
-      debug("getTestsuiteData: Cached file for suite:", {
+      debug('getTestsuiteData: Cached file for suite:', {
         suiteTitle: suite.title,
         cachedFile,
         isRoot: suite.root,
-        hasParent: !!suite.parent
+        hasParent: !!suite.parent,
       });
     }
 
@@ -545,14 +524,14 @@ class MochaGitLabReporter {
     // Fall back to parent suite's cached file if test.file doesn't exist
     let filePath = test.file || (test.parent && this._suiteFileCache.get(test.parent));
 
-    debug("appendFileAttribute: Processing test:", {
+    debug('appendFileAttribute: Processing test:', {
       testTitle: test.title,
       testFile: test.file,
       resolvedPath: filePath,
-      hasParent: !!test.parent
+      hasParent: !!test.parent,
     });
     if (!filePath) {
-      debug("appendFileAttribute: No file path found for test, skipping file attribute");
+      debug('appendFileAttribute: No file path found for test, skipping file attribute');
       return;
     }
     // Make path relative to cwd (typically the git repo root)
@@ -562,9 +541,9 @@ class MochaGitLabReporter {
     // Apply regex transformations if configured (using pre-compiled patterns)
     if (this._options.filePathTransforms && this._options.filePathTransforms.length > 0) {
       const originalPath = filePath;
-      debug("appendFileAttribute: Applying file path transforms:", {
+      debug('appendFileAttribute: Applying file path transforms:', {
         originalPath,
-        transformCount: this._options.filePathTransforms.length
+        transformCount: this._options.filePathTransforms.length,
       });
       for (const [index, transform] of this._options.filePathTransforms.entries()) {
         // Skip transforms that failed to compile
@@ -572,22 +551,19 @@ class MochaGitLabReporter {
           debug('appendFileAttribute: Skipping invalid transform:', {
             index,
             transform: transform[TRANSFORM_PROPS.RAW],
-            error: transform[TRANSFORM_PROPS.ERROR]
+            error: transform[TRANSFORM_PROPS.ERROR],
           });
           continue;
         }
         try {
           const beforeTransform = filePath;
-          filePath = filePath.replace(
-            transform[TRANSFORM_PROPS.PATTERN],
-            transform[TRANSFORM_PROPS.REPLACE]
-          );
+          filePath = filePath.replace(transform[TRANSFORM_PROPS.PATTERN], transform[TRANSFORM_PROPS.REPLACE]);
           if (beforeTransform !== filePath) {
             debug('appendFileAttribute: Transform applied:', {
               index,
               pattern: transform[TRANSFORM_PROPS.RAW][TRANSFORM_PROPS.SEARCH],
               before: beforeTransform,
-              after: filePath
+              after: filePath,
             });
           }
         } catch (e) {
@@ -595,14 +571,14 @@ class MochaGitLabReporter {
             index,
             transform: transform[TRANSFORM_PROPS.RAW],
             error: e?.message,
-            currentPath: filePath
+            currentPath: filePath,
           });
         }
       }
       if (originalPath !== filePath) {
-        debug("appendFileAttribute: Path transformation complete:", {
+        debug('appendFileAttribute: Path transformation complete:', {
           original: originalPath,
-          transformed: filePath
+          transformed: filePath,
         });
       }
     }
@@ -628,7 +604,7 @@ class MochaGitLabReporter {
     }
     if (systemOutLines.length > 0) {
       testcase.testcase.push({
-        "system-out": this.removeInvalidCharacters(stripAnsi(systemOutLines.join("\n")))
+        'system-out': this.removeInvalidCharacters(stripAnsi(systemOutLines.join('\n'))),
       });
       return true;
     }
@@ -646,7 +622,7 @@ class MochaGitLabReporter {
   appendSystemErr(testcase, test) {
     if (this._options.outputs && Array.isArray(test.consoleErrors) && test.consoleErrors.length > 0) {
       testcase.testcase.push({
-        "system-err": this.removeInvalidCharacters(stripAnsi(test.consoleErrors.join("\n")))
+        'system-err': this.removeInvalidCharacters(stripAnsi(test.consoleErrors.join('\n'))),
       });
       return true;
     }
@@ -667,24 +643,24 @@ class MochaGitLabReporter {
    */
   appendFailure(testcase, err) {
     let message;
-    if (err.message && typeof err.message.toString === "function") {
+    if (err.message && typeof err.message.toString === 'function') {
       message = err.message.toString();
-    } else if (typeof err.inspect === "function") {
-      message = err.inspect() + "";
+    } else if (typeof err.inspect === 'function') {
+      message = err.inspect() + '';
     } else {
-      message = "";
+      message = '';
     }
     let failureMessage = err.stack || message;
     if (!Base.hideDiff && err.expected !== undefined) {
       const oldUseColors = Base.useColors;
       Base.useColors = false;
-      failureMessage += "\n" + Base.generateDiff(err.actual, err.expected);
+      failureMessage += '\n' + Base.generateDiff(err.actual, err.expected);
       Base.useColors = oldUseColors;
     }
     const failureElement = {
       _attr: {
-        message: this.removeInvalidCharacters(message) || "",
-        type: err.name || "",
+        message: this.removeInvalidCharacters(message) || '',
+        type: err.name || '',
       },
       _cdata: this.removeInvalidCharacters(failureMessage),
     };
@@ -705,7 +681,7 @@ class MochaGitLabReporter {
     if (!input) {
       return input;
     }
-    return input.replaceAll(INVALID_CHARACTERS_REGEX, "");
+    return input.replaceAll(INVALID_CHARACTERS_REGEX, '');
   }
 
   /**
@@ -743,13 +719,13 @@ class MochaGitLabReporter {
     if (reportFilename.includes(PLACEHOLDERS.SUITE_FILENAME)) {
       reportFilename = reportFilename.replace(
         PLACEHOLDERS.SUITE_FILENAME,
-        testsuites[0]?.testsuite[0]?._attr?.file ?? "suiteFilename"
+        testsuites[0]?.testsuite[0]?._attr?.file ?? 'suiteFilename'
       );
     }
     if (reportFilename.includes(PLACEHOLDERS.SUITE_NAME)) {
       reportFilename = reportFilename.replace(
         PLACEHOLDERS.SUITE_NAME,
-        testsuites[1]?.testsuite[0]?._attr?.name ?? "suiteName"
+        testsuites[1]?.testsuite[0]?._attr?.name ?? 'suiteName'
       );
     }
 
@@ -776,20 +752,17 @@ class MochaGitLabReporter {
       const suiteTime = _suiteAttr.time;
 
       _suiteAttr.time = (suiteTime / TIME_CONVERSION.MS_TO_SECONDS || 0).toFixed(TIME_CONVERSION.DECIMAL_PLACES);
-      _suiteAttr.timestamp = new LocalDate(_suiteAttr.timestamp)
-        .toISOString()
-        .slice(0, -5);
+      _suiteAttr.timestamp = new LocalDate(_suiteAttr.timestamp).toISOString().slice(0, -5);
       _suiteAttr.failures = 0;
       _suiteAttr.skipped = 0;
 
       for (const testcase of _cases) {
         const lastNode = testcase.testcase.at(-1);
 
-        _suiteAttr.skipped += Number("skipped" in lastNode);
-        _suiteAttr.failures += Number("failure" in lastNode);
-        if (typeof testcase.testcase[0]._attr.time === "number") {
-          testcase.testcase[0]._attr.time =
-            testcase.testcase[0]._attr.time.toFixed(TIME_CONVERSION.DECIMAL_PLACES);
+        _suiteAttr.skipped += Number('skipped' in lastNode);
+        _suiteAttr.failures += Number('failure' in lastNode);
+        if (typeof testcase.testcase[0]._attr.time === 'number') {
+          testcase.testcase[0]._attr.time = testcase.testcase[0]._attr.time.toFixed(TIME_CONVERSION.DECIMAL_PLACES);
         }
       }
 
@@ -813,10 +786,7 @@ class MochaGitLabReporter {
     }
     testsuites = [rootSuite].concat(testsuites);
 
-    return toXml(
-      { testsuites: testsuites },
-      { declaration: XML_OPTIONS.DECLARATION, indent: XML_OPTIONS.INDENT }
-    );
+    return toXml({ testsuites: testsuites }, { declaration: XML_OPTIONS.DECLARATION, indent: XML_OPTIONS.INDENT });
   }
 
   /**
@@ -827,37 +797,37 @@ class MochaGitLabReporter {
    */
   writeXmlToDisk(xml, filePath) {
     if (!filePath) {
-      debug("writeXmlToDisk: No file path provided, skipping write");
+      debug('writeXmlToDisk: No file path provided, skipping write');
       return;
     }
 
-    debug("writeXmlToDisk: Writing XML report:", {
+    debug('writeXmlToDisk: Writing XML report:', {
       filePath,
       xmlSize: xml.length,
-      encoding: FILE_CONSTANTS.ENCODING
+      encoding: FILE_CONSTANTS.ENCODING,
     });
 
     try {
       // Create directory if it doesn't exist
       const directory = path.dirname(filePath);
       fs.mkdirSync(directory, { recursive: true });
-      debug("writeXmlToDisk: Created/verified directory:", directory);
+      debug('writeXmlToDisk: Created/verified directory:', directory);
 
       // Write the XML file
       fs.writeFileSync(filePath, xml, FILE_CONSTANTS.ENCODING);
-      debug("writeXmlToDisk: Successfully wrote XML report:", {
+      debug('writeXmlToDisk: Successfully wrote XML report:', {
         filePath,
         xmlSize: xml.length,
-        directory
+        directory,
       });
     } catch (error) {
       const errorMessage = `Failed to write test results to ${filePath}: ${error.message}`;
       console.error(errorMessage);
-      debug("writeXmlToDisk: Error writing file:", {
+      debug('writeXmlToDisk: Error writing file:', {
         filePath,
         errorCode: error.code,
         errorMessage: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       // Re-throw the error so users know the operation failed
       throw new Error(errorMessage);
@@ -866,5 +836,6 @@ class MochaGitLabReporter {
 }
 
 module.exports = MochaGitLabReporter;
+
 // Re-export XML builder for testing
-module.exports.toXml = require("./lib/xml-builder").toXml;
+module.exports.toXml = require('./lib/xml-builder').toXml;
