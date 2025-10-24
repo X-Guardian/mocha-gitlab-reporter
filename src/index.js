@@ -198,32 +198,6 @@ function getSetting(value, key, defaultVal, transform) {
 }
 
 /**
- * Generates the suite title for a given suite
- * @param {string} suite - the suite to generate the title for
- * @returns {string} the suite title
- */
-function generateSuiteTitle(suite) {
-  // If this IS the root suite, return "Root Suite"
-  if (suite.root && suite.title === "") {
-    return "Root Suite";
-  }
-
-  let parent = suite.parent;
-  const title = [suite.title];
-
-  while (parent) {
-    if (parent.root && parent.title === "") {
-      title.unshift("Root Suite");
-    } else {
-      title.unshift(parent.title);
-    }
-    parent = parent.parent;
-  }
-
-  return stripAnsi(title.join("."));
-}
-
-/**
  * Checks if a suite is invalid
  * @param {string} suite - the suite to check
  * @returns {boolean} true if the suite is invalid, false otherwise
@@ -387,8 +361,10 @@ class MochaGitLabReporter {
    * @return {Object}       - an object representing the xml node
    */
   getTestsuiteData(suite) {
+    // GitLab uses testcase classname, not testsuite name, so just use simple suite title
+    const suiteName = suite.root && suite.title === "" ? "Root Suite" : stripAnsi(suite.title);
     const _attr = {
-      name: generateSuiteTitle(suite),
+      name: suiteName,
       timestamp: this._Date.now(),
       tests: suite.tests.length,
     };

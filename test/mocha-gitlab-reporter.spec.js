@@ -389,7 +389,7 @@ describe("mocha-junit-reporter", function () {
 
       expect(reporter._testsuites).to.have.lengthOf(3);
       expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-        "Root Suite.failing beforeAll"
+        "failing beforeAll"
       );
       expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(2);
 
@@ -405,7 +405,7 @@ describe("mocha-junit-reporter", function () {
         reporter._testsuites[1].testsuite[1].testcase[1].failure._attr.message
       ).to.equal("error in before");
       expect(reporter._testsuites[2].testsuite[0]._attr.name).to.equal(
-        "Root Suite.good suite"
+        "good suite"
       );
       expect(reporter._testsuites[2].testsuite[1].testcase).to.have.lengthOf(1);
       expect(
@@ -432,7 +432,7 @@ describe("mocha-junit-reporter", function () {
 
       expect(reporter._testsuites).to.have.lengthOf(2);
       expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-        "Root Suite.failing with Chai"
+        "failing with Chai"
       );
       expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(2);
       expect(
@@ -466,7 +466,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.length(3);
         expect(
@@ -501,7 +501,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.length(1);
         expect(
@@ -529,7 +529,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.length(1);
         expect(
@@ -556,7 +556,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.length(2);
         expect(
@@ -583,7 +583,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(
           1
@@ -608,7 +608,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(
           1
@@ -638,7 +638,7 @@ describe("mocha-junit-reporter", function () {
 
       runRunner(reporter.runner, function () {
         expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal(
-          "Root Suite." + suite.title
+          suite.title
         );
         expect(reporter._testsuites[1].testsuite[1].testcase).to.have.length(2);
         expect(
@@ -815,7 +815,7 @@ describe("mocha-junit-reporter", function () {
       });
     });
 
-    it("uses dot separator for suite titles", function (done) {
+    it("uses dot separator for testcase classname", function (done) {
       const reporter = createReporter();
       const rootSuite = reporter.runner.suite;
 
@@ -825,9 +825,9 @@ describe("mocha-junit-reporter", function () {
       suite3.addTest(createTest("nested test"));
 
       runRunner(reporter.runner, function () {
-        expect(reporter._testsuites[3].testsuite[0]._attr.name).to.equal(
-          "Root Suite.Level 1.Level 2.Level 3"
-        );
+        // Testsuite name is simple (GitLab doesn't use it)
+        expect(reporter._testsuites[3].testsuite[0]._attr.name).to.equal("Level 3");
+        // Testcase classname is hierarchical (this is what GitLab displays)
         expect(
           reporter._testsuites[3].testsuite[1].testcase[0]._attr.classname
         ).to.equal("Level 1.Level 2.Level 3");

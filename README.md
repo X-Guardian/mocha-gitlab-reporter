@@ -241,9 +241,15 @@ Here's what the XML output looks like:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="Mocha Tests" time="0.001" tests="1" failures="0">
-  <testsuite name="Root Suite.API Tests.UserController" timestamp="2025-10-20T17:09:03" tests="1" time="0.001" failures="0">
-    <testcase name="should create user" time="0.000" classname="API Tests.UserController" file="test/api/user-test.js">
+<testsuites name="Mocha Tests" time="0.050" tests="2" failures="0">
+  <testsuite name="Root Suite" timestamp="2025-10-24T09:18:46" tests="0" time="0.000" failures="0">
+  </testsuite>
+  <testsuite name="API Tests" timestamp="2025-10-24T09:18:46" tests="0" time="0.000" failures="0">
+  </testsuite>
+  <testsuite name="UserController" timestamp="2025-10-24T09:18:46" tests="2" time="0.050" failures="0">
+    <testcase name="should create user" time="0.025" classname="API Tests.UserController" file="test/api/user-test.js">
+    </testcase>
+    <testcase name="should update user" time="0.025" classname="API Tests.UserController" file="test/api/user-test.js">
     </testcase>
   </testsuite>
 </testsuites>
@@ -251,9 +257,11 @@ Here's what the XML output looks like:
 
 Note how:
 
-- `classname="API Tests.UserController"` - This is what GitLab displays as the suite name
-- `name="should create user"` - This is the individual test name
-- `file="test/api/user-test.js"` - Relative path for navigation
+- `classname="API Tests.UserController"` - **This is what GitLab displays** as the suite name in the UI
+- `name="should create user"` - The individual test name shown in GitLab
+- `file="test/api/user-test.js"` - Relative path for navigation in GitLab
+
+**Important:** GitLab reads the suite name from the testcase `classname` attribute, not from the testsuite `name` attribute.
 
 ## Differences from mocha-junit-reporter
 

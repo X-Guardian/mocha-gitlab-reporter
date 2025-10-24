@@ -40,13 +40,25 @@ function buildXml(obj, options = {}, depth = 0) {
     if (key === '_attr') continue; // Handled by parent
 
     if (Array.isArray(value)) {
-      // Array of elements with same tag name
-      xml += value.map(item => {
-        if (typeof item === 'object' && item !== null) {
-          return buildXmlElement(key, item, options, depth);
-        }
-        return buildXmlElement(key, item, options, depth);
-      }).join('');
+      // Check if this is a wrapper element (first item has _attr, rest are children)
+      const hasWrapperPattern = value.length > 0 &&
+                                 value[0]?._attr &&
+                                 value.slice(1).some(item => typeof item === 'object' && !item._attr);
+
+      if (hasWrapperPattern) {
+        // Treat array as single element with attributes and children
+        const indent = options.indent || '  ';
+        const indentStr = indent.repeat(depth);
+        const attributes = Object.entries(value[0]._attr)
+          .map(([k, v]) => ` ${k}="${escapeXml(v)}"`)
+          .join('');
+
+        const childrenXml = value.slice(1).map(item => buildXml(item, options, depth + 1)).join('');
+        xml += `${indentStr}<${key}${attributes}>\n${childrenXml}${indentStr}</${key}>\n`;
+      } else {
+        // Array of sibling elements with same tag name
+        xml += value.map(item => buildXmlElement(key, item, options, depth)).join('');
+      }
     } else {
       xml += buildXmlElement(key, value, options, depth);
     }
@@ -94,8 +106,8 @@ function buildXmlElement(tagName, content, options, depth) {
   const contentKeys = Object.keys(content).filter(k => k !== '_attr');
 
   if (contentKeys.length === 0) {
-    // Self-closing tag with attributes
-    return `${indentStr}<${tagName}${attributes}/>\n`;
+    // Empty element with attributes - use opening and closing tags
+    return `${indentStr}<${tagName}${attributes}>\n${indentStr}</${tagName}>\n`;
   }
 
   // Handle nested content

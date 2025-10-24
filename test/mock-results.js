@@ -31,7 +31,7 @@ module.exports = function(stats) {
         testsuite: [
           {
             _attr: {
-              name: "Root Suite.Foo Bar",
+              name: "Foo Bar",
               timestamp: "1970-01-01T00:00:00",
               tests: "3",
               failures: "2",
@@ -93,7 +93,7 @@ module.exports = function(stats) {
         testsuite: [
           {
             _attr: {
-              name: "Root Suite.Another suite!",
+              name: "Another suite!",
               timestamp: "1970-01-01T00:01:40", // new Date(100001).toISOString().slice(0, -5)
               tests: "1",
               failures: "0",
@@ -121,7 +121,7 @@ module.exports = function(stats) {
       testsuite: [
         {
           _attr: {
-            name: "Root Suite.Pending suite!",
+            name: "Pending suite!",
             timestamp: "1970-01-01T00:08:20", // new Date(100001 + 400005).toISOString().slice(0, -5)
             tests: "1",
             failures: "0",
