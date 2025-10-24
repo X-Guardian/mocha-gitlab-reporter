@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Refined code to fix linting issues
+- Replaced `mkdirp` dependency with `fs.mkdirSync`
+- Replaced `md5` dependency with `crypto.createHash`
+- Replaced `rimraf` devDependency with `fs.promises.rm`
+- Added `engines` field to `package.json` to specify supported Node.js versions
 
 ## [1.0.0]
 

@@ -7,6 +7,8 @@ module.exports = {
   },
   "extends": "eslint:recommended",
   "rules": {
+    "no-var": "error",
+    "prefer-const": "error",
     "no-extra-semi": "warn",
     "semi": ["error", "always"],
     "space-in-parens": ["error", "never"],

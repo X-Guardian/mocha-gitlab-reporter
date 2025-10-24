@@ -6,7 +6,6 @@ const Base = mocha.reporters.Base;
 const fs = require("node:fs");
 const path = require("node:path");
 const debug = require("debug")("mocha-gitlab-reporter");
-const mkdirp = require("mkdirp");
 const crypto = require("node:crypto");
 const stripAnsi = require("strip-ansi");
 
@@ -270,7 +269,7 @@ class MochaGitLabReporter {
     this._runner = runner;
     this._Date = options?.Date ?? GlobalDate;
 
-    let testsuites = [];
+    const testsuites = [];
     this._testsuites = testsuites;
 
     function lastSuite() {
@@ -689,7 +688,7 @@ class MochaGitLabReporter {
   writeXmlToDisk(xml, filePath) {
     if (filePath) {
       debug("writing file to", filePath);
-      mkdirp.sync(path.dirname(filePath));
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
       try {
         fs.writeFileSync(filePath, xml, "utf-8");

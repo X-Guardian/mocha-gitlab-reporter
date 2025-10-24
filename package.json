@@ -1,6 +1,6 @@
 {
   "name": "mocha-gitlab-reporter",
-  "version": "1.0.1",
+  "version": "1.1.0-beta.2",
   "description": "A GitLab CI compatible JUnit XML reporter for Mocha. Generates test reports that display correctly in GitLab's merge request and pipeline interfaces.",
   "main": "index.js",
   "scripts": {
@@ -27,6 +27,9 @@
   "files": [
     "index.js"
   ],
+  "engines": {
+    "node": ">=14.14.0"
+  },
   "devDependencies": {
     "@sinonjs/fake-timers": "^6.0.1",
     "chai": "^6.0.0",
@@ -36,13 +39,11 @@
     "mocha9": "npm:mocha@^9.2.2",
     "mocha10": "npm:mocha@^10.2.0",
     "mocha11": "npm:mocha@^11.0.0",
-    "rimraf": "^6.0.1",
     "test-console": "^2.0.0",
     "xmllint": "^0.1.1"
   },
   "dependencies": {
     "debug": "^4.4.3",
-    "mkdirp": "^3.0.1",
     "strip-ansi": "^6.0.1",
     "xml": "^1.0.1"
   },

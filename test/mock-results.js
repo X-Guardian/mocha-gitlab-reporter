@@ -1,9 +1,9 @@
 'use strict';
 
-var xml = require('xml');
+const xml = require('xml');
 
 module.exports = function(stats) {
-  var data = {
+  const data = {
     testsuites: [
       {
         _attr: {
