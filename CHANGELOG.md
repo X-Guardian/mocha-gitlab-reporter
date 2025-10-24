@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced `rimraf` devDependency with `fs.promises.rm`
 - Added `engines` field to `package.json` to specify supported Node.js versions
 
+### Fixed
+
+- Fixed issue where file paths were not being correctly read from parent suites
+
 ## [1.0.0]
 
 Initial release

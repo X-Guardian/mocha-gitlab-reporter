@@ -953,6 +953,158 @@ describe("mocha-junit-reporter", function () {
       });
     });
 
+    it("uses suite file when test.file doesn't exist", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      suite1.file = "test/suite.spec.js";
+      const test = createTest("test_inheriting_suite_file");
+      // Deliberately not setting test.file
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // File attribute should be inherited from suite
+        expect(testcase._attr.file).to.equal("test/suite.spec.js");
+
+        done();
+      });
+    });
+
+    it("uses root suite file when test and parent suite don't have file", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+      rootSuite.file = "test/root.spec.js";
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      const test = createTest("test_inheriting_root_file");
+      // Neither test nor suite1 have file property
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // File attribute should be inherited from root suite
+        expect(testcase._attr.file).to.equal("test/root.spec.js");
+
+        done();
+      });
+    });
+
+    it("uses nearest parent suite file in nested structure", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+      rootSuite.file = "test/root.spec.js";
+
+      const suite1 = Suite.create(rootSuite, "Level 1");
+      const suite2 = Suite.create(suite1, "Level 2");
+      suite2.file = "test/level2.spec.js";
+      const suite3 = Suite.create(suite2, "Level 3");
+      const test = createTest("test_nested_inheritance");
+      // test doesn't have file property
+      suite3.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[3].testsuite[1].testcase[0];
+        // Should use the nearest parent with file property (suite2)
+        expect(testcase._attr.file).to.equal("test/level2.spec.js");
+
+        done();
+      });
+    });
+
+    it("prefers test.file over suite file", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      suite1.file = "test/suite.spec.js";
+      const test = createTest("test_with_own_file");
+      test.file = "test/specific-test.js";
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // Should use test's own file, not the suite's
+        expect(testcase._attr.file).to.equal("test/specific-test.js");
+
+        done();
+      });
+    });
+
+    it("caches file across multiple tests in same suite", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      suite1.file = "test/shared.spec.js";
+
+      const test1 = createTest("test_one");
+      const test2 = createTest("test_two");
+      const test3 = createTest("test_three");
+      // None of the tests have their own file property
+      suite1.addTest(test1);
+      suite1.addTest(test2);
+      suite1.addTest(test3);
+
+      runRunner(reporter.runner, function () {
+        const testcase1 = reporter._testsuites[1].testsuite[1].testcase[0];
+        const testcase2 = reporter._testsuites[1].testsuite[2].testcase[0];
+        const testcase3 = reporter._testsuites[1].testsuite[3].testcase[0];
+
+        // All tests should have the same file from the suite
+        expect(testcase1._attr.file).to.equal("test/shared.spec.js");
+        expect(testcase2._attr.file).to.equal("test/shared.spec.js");
+        expect(testcase3._attr.file).to.equal("test/shared.spec.js");
+
+        done();
+      });
+    });
+
+    it("converts inherited absolute file paths to relative paths", function (done) {
+      const reporter = createReporter();
+      const rootSuite = reporter.runner.suite;
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      const absolutePath = path.join(
+        process.cwd(),
+        "test",
+        "suite.spec.js"
+      );
+      suite1.file = absolutePath;
+      const test = createTest("test_inheriting_absolute_path");
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // Inherited absolute path should be converted to relative
+        expect(testcase._attr.file).to.equal(path.join("test", "suite.spec.js"));
+        expect(testcase._attr.file).not.to.include(process.cwd());
+
+        done();
+      });
+    });
+
+    it("applies filePathTransforms to inherited file paths", function (done) {
+      const reporter = createReporter({
+        filePathTransforms: "[{search: '^build/', replace: 'src/'}]"
+      });
+      const rootSuite = reporter.runner.suite;
+
+      const suite1 = Suite.create(rootSuite, "Test Suite");
+      suite1.file = "build/modules/test.spec.js";
+      const test = createTest("test_transformed_inherited_path");
+      suite1.addTest(test);
+
+      runRunner(reporter.runner, function () {
+        const testcase = reporter._testsuites[1].testsuite[1].testcase[0];
+        // Inherited file path should be transformed
+        expect(testcase._attr.file).to.equal("src/modules/test.spec.js");
+
+        done();
+      });
+    });
+
     it("can enable console reporter", function (done) {
       // This test verifies that the consoleReporter option doesn't break the reporter
       // We can't easily test the console output itself, but we can verify the reporter still works

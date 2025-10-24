@@ -394,6 +394,27 @@ class MochaGitLabReporter {
     };
     const testSuite = { testsuite: [{ _attr: _attr }] };
 
+    // Cache the file from this suite or traverse up to find it from parent suites
+    if (!suite._cachedFile) {
+      if (suite.file) {
+        suite._cachedFile = suite.file;
+      } else {
+        let parent = suite.parent;
+        while (parent) {
+          if (parent.file) {
+            suite._cachedFile = parent.file;
+            break;
+          }
+          if (parent._cachedFile) {
+            suite._cachedFile = parent._cachedFile;
+            break;
+          }
+          parent = parent.parent;
+        }
+      }
+      debug("Cached file for suite", suite.title, suite._cachedFile);
+    }
+
     return testSuite;
   }
 
@@ -422,7 +443,6 @@ class MochaGitLabReporter {
     };
 
     // Always add file attribute if available (GitLab format)
-    // Always add file attribute if available (GitLab format)
     this.appendFileAttribute(testcase, test);
 
     // Add any system outputs/errors and attachments
@@ -443,8 +463,11 @@ class MochaGitLabReporter {
    * @param {string} [test.file] - Path to the test file
    */
   appendFileAttribute(testcase, test) {
-    if (!test.file) return;
-    let filePath = test.file;
+    // Fall back to parent suite's cached file if test.file doesn't exist
+    let filePath = test.file || (test.parent && test.parent._cachedFile);
+
+    debug("Appending file attribute for test", test.title, filePath);
+    if (!filePath) return;
     // Make path relative to cwd (typically the git repo root)
     if (path.isAbsolute(filePath)) {
       filePath = path.relative(process.cwd(), filePath);
