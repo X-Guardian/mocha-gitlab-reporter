@@ -1,116 +1,117 @@
 'use strict';
 
-var xml = require('xml');
+// Import the custom XML builder
+const { toXml } = require('../src/lib/xml-builder');
 
-module.exports = function(stats) {
-  var data = {
+module.exports = function (stats) {
+  const data = {
     testsuites: [
       {
         _attr: {
-          name: "Mocha Tests",
+          name: 'Mocha Tests',
           tests: 4,
-          failures: "2",
-          time: ((stats.duration || 0) / 1000).toFixed(3)
-        }
+          failures: '2',
+          time: ((stats.duration || 0) / 1000).toFixed(3),
+        },
       },
       {
         testsuite: [
           {
             _attr: {
-              name: "Root Suite",
-              timestamp: "1970-01-01T00:00:00", // ISO timestamp truncated to the second
-              tests: "0",
-              failures: "0",
-              time: "0.000"
-            }
-          }
-        ]
+              name: 'Root Suite',
+              timestamp: '1970-01-01T00:00:00', // ISO timestamp truncated to the second
+              tests: '0',
+              failures: '0',
+              time: '0.000',
+            },
+          },
+        ],
       },
       {
         testsuite: [
           {
             _attr: {
-              name: "Root Suite.Foo Bar",
-              timestamp: "1970-01-01T00:00:00",
-              tests: "3",
-              failures: "2",
-              time: "100.001"
-            }
+              name: 'Foo Bar',
+              timestamp: '1970-01-01T00:00:00',
+              tests: '3',
+              failures: '2',
+              time: '100.001',
+            },
           },
           {
             testcase: {
               _attr: {
-                name: "can weez the juice",
-                classname: "Foo Bar",
-                time: "0.101"
-              }
-            }
+                name: 'can weez the juice',
+                classname: 'Foo Bar',
+                time: '0.101',
+              },
+            },
           },
           {
             testcase: [
               {
                 _attr: {
-                  name: "can narfle the garthog",
-                  classname: "Foo Bar",
-                  time: "2.002"
-                }
+                  name: 'can narfle the garthog',
+                  classname: 'Foo Bar',
+                  time: '2.002',
+                },
               },
               {
                 failure: {
                   _attr: {
-                      message: "expected garthog to be dead",
-                      type: "Error"
+                    message: 'expected garthog to be dead',
+                    type: 'Error',
                   },
-                  _cdata: "this is where the stack would be"
-                }
-              }
-            ]
+                  _cdata: 'this is where the stack would be',
+                },
+              },
+            ],
           },
           {
             testcase: [
               {
                 _attr: {
-                  name: "can behave like a flandip",
-                  classname: "Foo Bar",
-                  time: "30.003"
-                }
+                  name: 'can behave like a flandip',
+                  classname: 'Foo Bar',
+                  time: '30.003',
+                },
               },
               {
                 failure: {
                   _attr: {
-                      message: "expected baz to be masher, a hustler, an uninvited grasper of cone",
-                      type: "BazError"
+                    message: 'expected baz to be masher, a hustler, an uninvited grasper of cone',
+                    type: 'BazError',
                   },
-                  _cdata: "stack"
-                }
-              }
-            ]
-          }
-        ]
+                  _cdata: 'stack',
+                },
+              },
+            ],
+          },
+        ],
       },
       {
         testsuite: [
           {
             _attr: {
-              name: "Root Suite.Another suite!",
-              timestamp: "1970-01-01T00:01:40", // new Date(100001).toISOString().slice(0, -5)
-              tests: "1",
-              failures: "0",
-              time: "400.005"
-            }
+              name: 'Another suite!',
+              timestamp: '1970-01-01T00:01:40', // new Date(100001).toISOString().slice(0, -5)
+              tests: '1',
+              failures: '0',
+              time: '400.005',
+            },
           },
           {
             testcase: {
               _attr: {
-                name: "works",
-                classname: "Another suite!",
-                time: "400.004"
-              }
-            }
-          }
-        ]
-      }
-    ]
+                name: 'works',
+                classname: 'Another suite!',
+                time: '400.004',
+              },
+            },
+          },
+        ],
+      },
+    ],
   };
 
   if (stats.pending) {
@@ -120,31 +121,31 @@ module.exports = function(stats) {
       testsuite: [
         {
           _attr: {
-            name: "Root Suite.Pending suite!",
-            timestamp: "1970-01-01T00:08:20", // new Date(100001 + 400005).toISOString().slice(0, -5)
-            tests: "1",
-            failures: "0",
-            skipped: "1",
-            time: "0.000"
-          }
+            name: 'Pending suite!',
+            timestamp: '1970-01-01T00:08:20', // new Date(100001 + 400005).toISOString().slice(0, -5)
+            tests: '1',
+            failures: '0',
+            skipped: '1',
+            time: '0.000',
+          },
         },
         {
           testcase: [
             {
               _attr: {
-                name: "pending",
-                classname: "Pending suite!",
-                time: "0.000"
-              }
+                name: 'pending',
+                classname: 'Pending suite!',
+                time: '0.000',
+              },
             },
             {
-              skipped: null
-            }
-          ]
-        }
-      ]
+              skipped: null,
+            },
+          ],
+        },
+      ],
     });
   }
 
-  return xml(data, {declaration: true});
+  return toXml(data, { declaration: true, indent: '  ' });
 };
