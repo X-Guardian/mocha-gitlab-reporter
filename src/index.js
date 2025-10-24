@@ -8,6 +8,22 @@ const debug = require("debug")("mocha-gitlab-reporter");
 const crypto = require("node:crypto");
 const stripAnsi = require("strip-ansi");
 const { toXml } = require("./lib/xml-builder");
+const {
+  DEFAULTS,
+  ENV_VARS,
+  PLACEHOLDERS,
+  FILE_CONSTANTS,
+  ERROR_CODES,
+  TRANSFORM_PROPS,
+  TIME_CONVERSION,
+  MOCHA_VERSION,
+  XML_OPTIONS,
+  INVALID_CHARACTERS_REGEX,
+} = require("./constants");
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
 
 // Save timer references so that times are correct even if Date is stubbed.
 // See https://github.com/mochajs/mocha/issues/237
@@ -19,14 +35,17 @@ let mocha6plus = false;
 try {
   const json = JSON.parse(
     fs.readFileSync(
-      path.dirname(require.resolve("mocha")) + "/package.json",
-      "utf8"
+      path.dirname(require.resolve("mocha")) + FILE_CONSTANTS.PACKAGE_JSON_PATH,
+      FILE_CONSTANTS.ENCODING
     )
   );
   const version = json.version;
-  const majorVersion = Number.parseInt(version.split(".")[0], 10);
-  if (majorVersion >= 6) {
-    createStatsCollector = require("mocha/lib/stats-collector");
+  const majorVersion = Number.parseInt(
+    version.split(".")[MOCHA_VERSION.VERSION_INDEX_MAJOR],
+    MOCHA_VERSION.RADIX
+  );
+  if (majorVersion >= MOCHA_VERSION.MIN_FOR_STATS_COLLECTOR) {
+    createStatsCollector = require(FILE_CONSTANTS.MOCHA_STATS_COLLECTOR_PATH);
     mocha6plus = true;
   } else {
     mocha6plus = false;
@@ -35,11 +54,6 @@ try {
   // best-effort: if mocha package.json can't be read we continue with defaults
   console.warn("Couldn't determine Mocha version", error_);
 }
-
-// A subset of invalid characters as defined in http://www.w3.org/TR/xml/#charsets that can occur in e.g. stacktraces
-// regex lifted from https://github.com/MylesBorins/xml-sanitizer/ (licensed MIT)
-const INVALID_CHARACTERS_REGEX =
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007f-\u0084\u0086-\u009f\uD800-\uDFFF\uFDD0-\uFDFF\uFFFF\uC008]/g; //eslint-disable-line no-control-regex
 
 /**
  * Configure default options for the reporter by combining reporter options with environment variables.
@@ -54,20 +68,24 @@ const INVALID_CHARACTERS_REGEX =
  * @throws {TypeError} If filePathTransforms has invalid format
  */
 function configureDefaults(options) {
-  debug("Mocha options", options);
+  debug("configureDefaults: Received Mocha options:", JSON.stringify(options, null, 2));
   const config = options?.reporterOptions ?? {};
-  debug("Reporter options", config);
+  debug("configureDefaults: Extracted reporter options:", JSON.stringify(config, null, 2));
   config.mochaFile = getSetting(
     config.mochaFile,
-    "MOCHA_FILE",
-    "test-results.xml"
+    ENV_VARS.MOCHA_FILE,
+    DEFAULTS.MOCHA_FILE
   );
-  config.attachments = getSetting(config.attachments, "ATTACHMENTS", false);
+  config.attachments = getSetting(
+    config.attachments,
+    ENV_VARS.ATTACHMENTS,
+    DEFAULTS.ATTACHMENTS
+  );
   config.toConsole = !!config.toConsole;
   config.consoleReporter = getSetting(
     config.consoleReporter,
-    "CONSOLE_REPORTER",
-    null
+    ENV_VARS.CONSOLE_REPORTER,
+    DEFAULTS.CONSOLE_REPORTER
   );
 
   // Normalize to array of pattern pairs
@@ -91,8 +109,14 @@ function configureDefaults(options) {
 
     // Convert shorthand property names to quoted names for valid JSON
     // Replace 'search:' with '"search":' and 'replace:' with '"replace":'
-    filePathTransforms = filePathTransforms.replaceAll(/(\{|\s)search:/g, '$1"search":');
-    filePathTransforms = filePathTransforms.replaceAll(/(\{|\s|,)replace:/g, '$1"replace":');
+    filePathTransforms = filePathTransforms.replaceAll(
+      new RegExp(`(\\{|\\s)${TRANSFORM_PROPS.SEARCH}:`, 'g'),
+      `$1"${TRANSFORM_PROPS.SEARCH}":`
+    );
+    filePathTransforms = filePathTransforms.replaceAll(
+      new RegExp(`(\\{|\\s|,)${TRANSFORM_PROPS.REPLACE}:`, 'g'),
+      `$1"${TRANSFORM_PROPS.REPLACE}":`
+    );
 
     // Convert single quotes to double quotes for string values
     // Handle backslashes properly - they need to be escaped for JSON
@@ -105,9 +129,16 @@ function configureDefaults(options) {
     transforms = parseFilePathTransforms(filePathTransforms);
   }
 
-  config.filePathTransforms = transforms;
+  // Pre-compile regex patterns to avoid recompiling on every test case
+  config.filePathTransforms = compileFilePathTransforms(transforms);
 
-  debug("Config", config);
+  debug("configureDefaults: Final configuration:", {
+    mochaFile: config.mochaFile,
+    attachments: config.attachments,
+    toConsole: config.toConsole,
+    consoleReporter: config.consoleReporter,
+    filePathTransforms: config.filePathTransforms
+  });
   return config;
 }
 
@@ -135,21 +166,63 @@ function parseFilePathTransforms(input) {
 
   if (Array.isArray(parsed)) {
     for (const [index, transform] of parsed.entries()) {
-      if (!transform?.search || !transform?.replace) {
-        throw new TypeError(`filePathTransforms[${index}] must have both 'search' and 'replace' properties.`);
+      if (!transform?.[TRANSFORM_PROPS.SEARCH] || !transform?.[TRANSFORM_PROPS.REPLACE]) {
+        throw new TypeError(`filePathTransforms[${index}] must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`);
       }
     }
     return parsed;
   }
 
   if (typeof parsed === 'object' && parsed !== null) {
-    if (!parsed.search || !parsed.replace) {
-      throw new TypeError("filePathTransforms must have both 'search' and 'replace' properties.");
+    if (!parsed[TRANSFORM_PROPS.SEARCH] || !parsed[TRANSFORM_PROPS.REPLACE]) {
+      throw new TypeError(`filePathTransforms must have both '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties.`);
     }
     return [parsed];
   }
 
   throw new TypeError('filePathTransforms has unsupported format');
+}
+
+/**
+ * Compile file path transformation rules into regex patterns.
+ * Pre-compiles regex patterns for performance to avoid recompiling on every test case.
+ * @param {Array<{search: string, replace: string}>} transforms - Array of transformation rules
+ * @returns {Array<{pattern: RegExp, replace: string, raw: Object}>} Array of compiled transforms
+ * @example
+ * compileFilePathTransforms([{search: "^build/", replace: "src/"}])
+ * // Returns: [{pattern: /^build\//, replace: "src/", raw: {search: "^build/", replace: "src/"}}]
+ */
+function compileFilePathTransforms(transforms) {
+  return transforms.map((transform, index) => {
+    try {
+      if (
+        typeof transform[TRANSFORM_PROPS.SEARCH] !== 'string' ||
+        typeof transform[TRANSFORM_PROPS.REPLACE] !== 'string'
+      ) {
+        throw new TypeError(
+          `Transform entry must have string '${TRANSFORM_PROPS.SEARCH}' and '${TRANSFORM_PROPS.REPLACE}' properties`
+        );
+      }
+      return {
+        [TRANSFORM_PROPS.PATTERN]: new RegExp(transform[TRANSFORM_PROPS.SEARCH]),
+        [TRANSFORM_PROPS.REPLACE]: transform[TRANSFORM_PROPS.REPLACE],
+        [TRANSFORM_PROPS.RAW]: transform // Keep original for debugging
+      };
+    } catch (error) {
+      debug(`compileFilePathTransforms: Failed to compile transform[${index}]:`, {
+        transform,
+        error: error.message,
+        stack: error.stack
+      });
+      // Return a transform that will be skipped (invalid pattern)
+      return {
+        [TRANSFORM_PROPS.PATTERN]: null,
+        [TRANSFORM_PROPS.REPLACE]: transform[TRANSFORM_PROPS.REPLACE],
+        [TRANSFORM_PROPS.RAW]: transform,
+        [TRANSFORM_PROPS.ERROR]: error.message
+      };
+    }
+  });
 }
 
 /**
@@ -246,6 +319,9 @@ class MochaGitLabReporter {
     const testsuites = [];
     this._testsuites = testsuites;
 
+    // Use WeakMap to cache file paths without modifying Mocha's suite objects
+    this._suiteFileCache = new WeakMap();
+
     function lastSuite() {
       return testsuites.at(-1).testsuite;
     }
@@ -265,11 +341,19 @@ class MochaGitLabReporter {
         // Try to require as a module, but only for safe module names
         try {
           ConsoleReporter = require(reporterName);
+          debug("constructor: Successfully loaded console reporter module:", reporterName);
         } catch (error_) {
-          debug("Could not load console reporter: " + reporterName, error_);
+          debug("constructor: Could not load console reporter module:", {
+            reporterName,
+            error: error_.message,
+            code: error_.code
+          });
         }
       } else {
-        debug("Refusing to load unsafe console reporter name: " + reporterName);
+        debug("constructor: Refusing to load unsafe console reporter name:", {
+          reporterName,
+          reason: "Name contains unsafe characters"
+        });
       }
 
       if (ConsoleReporter) {
@@ -282,9 +366,21 @@ class MochaGitLabReporter {
     this._runner.on(
       "start",
       function () {
-        if (fs.existsSync(this._options.mochaFile)) {
-          debug("removing report file", this._options.mochaFile);
+        try {
           fs.unlinkSync(this._options.mochaFile);
+          debug("runner.start: Successfully removed existing report file:", this._options.mochaFile);
+        } catch (error) {
+          // Ignore ENOENT (file doesn't exist) - that's expected on first run
+          if (error.code !== ERROR_CODES.FILE_NOT_FOUND) {
+            console.warn(`Warning: Could not remove existing report file ${this._options.mochaFile}: ${error.message}`);
+            debug("runner.start: Error removing report file:", {
+              file: this._options.mochaFile,
+              errorCode: error.code,
+              errorMessage: error.message
+            });
+          } else {
+            debug("runner.start: Report file does not exist (expected on first run):", this._options.mochaFile);
+          }
         }
       }.bind(this)
     );
@@ -362,7 +458,7 @@ class MochaGitLabReporter {
    */
   getTestsuiteData(suite) {
     // GitLab uses testcase classname, not testsuite name, so just use simple suite title
-    const suiteName = suite.root && suite.title === "" ? "Root Suite" : stripAnsi(suite.title);
+    const suiteName = suite.root && suite.title === "" ? DEFAULTS.ROOT_SUITE_NAME : stripAnsi(suite.title);
     const _attr = {
       name: suiteName,
       timestamp: this._Date.now(),
@@ -371,24 +467,31 @@ class MochaGitLabReporter {
     const testSuite = { testsuite: [{ _attr: _attr }] };
 
     // Cache the file from this suite or traverse up to find it from parent suites
-    if (!suite._cachedFile) {
+    if (!this._suiteFileCache.has(suite)) {
+      let cachedFile;
       if (suite.file) {
-        suite._cachedFile = suite.file;
+        cachedFile = suite.file;
       } else {
         let parent = suite.parent;
         while (parent) {
           if (parent.file) {
-            suite._cachedFile = parent.file;
+            cachedFile = parent.file;
             break;
           }
-          if (parent._cachedFile) {
-            suite._cachedFile = parent._cachedFile;
+          if (this._suiteFileCache.has(parent)) {
+            cachedFile = this._suiteFileCache.get(parent);
             break;
           }
           parent = parent.parent;
         }
       }
-      debug("Cached file for suite", suite.title, suite._cachedFile);
+      this._suiteFileCache.set(suite, cachedFile);
+      debug("getTestsuiteData: Cached file for suite:", {
+        suiteTitle: suite.title,
+        cachedFile,
+        isRoot: suite.root,
+        hasParent: !!suite.parent
+      });
     }
 
     return testSuite;
@@ -411,7 +514,7 @@ class MochaGitLabReporter {
         {
           _attr: {
             name: name,
-            time: durationMs === undefined ? 0 : durationMs / 1000,
+            time: durationMs === undefined ? 0 : durationMs / TIME_CONVERSION.MS_TO_SECONDS,
             classname: classname,
           },
         },
@@ -440,27 +543,67 @@ class MochaGitLabReporter {
    */
   appendFileAttribute(testcase, test) {
     // Fall back to parent suite's cached file if test.file doesn't exist
-    let filePath = test.file || (test.parent && test.parent._cachedFile);
+    let filePath = test.file || (test.parent && this._suiteFileCache.get(test.parent));
 
-    debug("Appending file attribute for test", test.title, filePath);
-    if (!filePath) return;
+    debug("appendFileAttribute: Processing test:", {
+      testTitle: test.title,
+      testFile: test.file,
+      resolvedPath: filePath,
+      hasParent: !!test.parent
+    });
+    if (!filePath) {
+      debug("appendFileAttribute: No file path found for test, skipping file attribute");
+      return;
+    }
     // Make path relative to cwd (typically the git repo root)
     if (path.isAbsolute(filePath)) {
       filePath = path.relative(process.cwd(), filePath);
     }
-    // Apply regex transformations if configured
+    // Apply regex transformations if configured (using pre-compiled patterns)
     if (this._options.filePathTransforms && this._options.filePathTransforms.length > 0) {
-      for (const transform of this._options.filePathTransforms) {
-        // validate transform pattern to avoid throwing on invalid regex or non-string replace
-        try {
-          if (typeof transform.search !== 'string' || typeof transform.replace !== 'string') {
-            throw new TypeError('Invalid filePathTransforms entry');
-          }
-          const regex = new RegExp(transform.search);
-          filePath = filePath.replace(regex, transform.replace);
-        } catch (e) {
-          debug('Skipping invalid filePathTransforms entry', transform, e?.message);
+      const originalPath = filePath;
+      debug("appendFileAttribute: Applying file path transforms:", {
+        originalPath,
+        transformCount: this._options.filePathTransforms.length
+      });
+      for (const [index, transform] of this._options.filePathTransforms.entries()) {
+        // Skip transforms that failed to compile
+        if (!transform[TRANSFORM_PROPS.PATTERN]) {
+          debug('appendFileAttribute: Skipping invalid transform:', {
+            index,
+            transform: transform[TRANSFORM_PROPS.RAW],
+            error: transform[TRANSFORM_PROPS.ERROR]
+          });
+          continue;
         }
+        try {
+          const beforeTransform = filePath;
+          filePath = filePath.replace(
+            transform[TRANSFORM_PROPS.PATTERN],
+            transform[TRANSFORM_PROPS.REPLACE]
+          );
+          if (beforeTransform !== filePath) {
+            debug('appendFileAttribute: Transform applied:', {
+              index,
+              pattern: transform[TRANSFORM_PROPS.RAW][TRANSFORM_PROPS.SEARCH],
+              before: beforeTransform,
+              after: filePath
+            });
+          }
+        } catch (e) {
+          debug('appendFileAttribute: Transform failed:', {
+            index,
+            transform: transform[TRANSFORM_PROPS.RAW],
+            error: e?.message,
+            currentPath: filePath
+          });
+        }
+      }
+      if (originalPath !== filePath) {
+        debug("appendFileAttribute: Path transformation complete:", {
+          original: originalPath,
+          transformed: filePath
+        });
       }
     }
     testcase.testcase[0]._attr.file = filePath;
@@ -525,7 +668,7 @@ class MochaGitLabReporter {
   appendFailure(testcase, err) {
     let message;
     if (err.message && typeof err.message.toString === "function") {
-      message = err.message + "";
+      message = err.message.toString();
     } else if (typeof err.inspect === "function") {
       message = err.inspect() + "";
     } else {
@@ -589,20 +732,23 @@ class MochaGitLabReporter {
   formatReportFilename(xml, testsuites) {
     let reportFilename = this._options.mochaFile;
 
-    if (reportFilename.includes("[hash]")) {
-      const hash = crypto.createHash("sha256").update(xml, "utf8").digest("hex");
-      reportFilename = reportFilename.replace("[hash]", hash);
+    if (reportFilename.includes(PLACEHOLDERS.HASH)) {
+      const hash = crypto
+        .createHash(FILE_CONSTANTS.HASH_ALGORITHM)
+        .update(xml, FILE_CONSTANTS.ENCODING)
+        .digest(FILE_CONSTANTS.HASH_DIGEST);
+      reportFilename = reportFilename.replace(PLACEHOLDERS.HASH, hash);
     }
 
-    if (reportFilename.includes("[suiteFilename]")) {
+    if (reportFilename.includes(PLACEHOLDERS.SUITE_FILENAME)) {
       reportFilename = reportFilename.replace(
-        "[suiteFilename]",
+        PLACEHOLDERS.SUITE_FILENAME,
         testsuites[0]?.testsuite[0]?._attr?.file ?? "suiteFilename"
       );
     }
-    if (reportFilename.includes("[suiteName]")) {
+    if (reportFilename.includes(PLACEHOLDERS.SUITE_NAME)) {
       reportFilename = reportFilename.replace(
-        "[suiteName]",
+        PLACEHOLDERS.SUITE_NAME,
         testsuites[1]?.testsuite[0]?._attr?.name ?? "suiteName"
       );
     }
@@ -629,7 +775,7 @@ class MochaGitLabReporter {
       // suiteTime has unrounded time as a Number of milliseconds
       const suiteTime = _suiteAttr.time;
 
-      _suiteAttr.time = (suiteTime / 1000 || 0).toFixed(3);
+      _suiteAttr.time = (suiteTime / TIME_CONVERSION.MS_TO_SECONDS || 0).toFixed(TIME_CONVERSION.DECIMAL_PLACES);
       _suiteAttr.timestamp = new LocalDate(_suiteAttr.timestamp)
         .toISOString()
         .slice(0, -5);
@@ -643,7 +789,7 @@ class MochaGitLabReporter {
         _suiteAttr.failures += Number("failure" in lastNode);
         if (typeof testcase.testcase[0]._attr.time === "number") {
           testcase.testcase[0]._attr.time =
-            testcase.testcase[0]._attr.time.toFixed(3);
+            testcase.testcase[0]._attr.time.toFixed(TIME_CONVERSION.DECIMAL_PLACES);
         }
       }
 
@@ -656,8 +802,8 @@ class MochaGitLabReporter {
 
     const rootSuite = {
       _attr: {
-        name: "Mocha Tests",
-        time: (stats.duration / 1000 || 0).toFixed(3),
+        name: DEFAULTS.ROOT_TESTSUITES_NAME,
+        time: (stats.duration / TIME_CONVERSION.MS_TO_SECONDS || 0).toFixed(TIME_CONVERSION.DECIMAL_PLACES),
         tests: totalTests,
         failures: stats.failures,
       },
@@ -667,25 +813,54 @@ class MochaGitLabReporter {
     }
     testsuites = [rootSuite].concat(testsuites);
 
-    return toXml({ testsuites: testsuites }, { declaration: true, indent: "  " });
+    return toXml(
+      { testsuites: testsuites },
+      { declaration: XML_OPTIONS.DECLARATION, indent: XML_OPTIONS.INDENT }
+    );
   }
 
   /**
    * Writes a JUnit test report XML document.
    * @param {string} xml - xml string
    * @param {string} filePath - path to output file
+   * @throws {Error} If the file cannot be written
    */
   writeXmlToDisk(xml, filePath) {
-    if (filePath) {
-      debug("writing file to", filePath);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    if (!filePath) {
+      debug("writeXmlToDisk: No file path provided, skipping write");
+      return;
+    }
 
-      try {
-        fs.writeFileSync(filePath, xml, "utf-8");
-      } catch (error) {
-        debug("problem writing results: " + error);
-      }
-      debug("results written successfully");
+    debug("writeXmlToDisk: Writing XML report:", {
+      filePath,
+      xmlSize: xml.length,
+      encoding: FILE_CONSTANTS.ENCODING
+    });
+
+    try {
+      // Create directory if it doesn't exist
+      const directory = path.dirname(filePath);
+      fs.mkdirSync(directory, { recursive: true });
+      debug("writeXmlToDisk: Created/verified directory:", directory);
+
+      // Write the XML file
+      fs.writeFileSync(filePath, xml, FILE_CONSTANTS.ENCODING);
+      debug("writeXmlToDisk: Successfully wrote XML report:", {
+        filePath,
+        xmlSize: xml.length,
+        directory
+      });
+    } catch (error) {
+      const errorMessage = `Failed to write test results to ${filePath}: ${error.message}`;
+      console.error(errorMessage);
+      debug("writeXmlToDisk: Error writing file:", {
+        filePath,
+        errorCode: error.code,
+        errorMessage: error.message,
+        stack: error.stack
+      });
+      // Re-throw the error so users know the operation failed
+      throw new Error(errorMessage);
     }
   }
 }
