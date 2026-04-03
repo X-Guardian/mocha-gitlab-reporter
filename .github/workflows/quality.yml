@@ -25,7 +25,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run lint
-        run: pnpm lint
+        run: pnpm eslint . --format json --output-file eslint-report.json
+        continue-on-error: true
+
+      - name: Annotate ESLint results
+        uses: ataylorme/eslint-annotate-action@d57a1193d4c59cbfbf3f86c271f42612f9dbd9e9 # v3.0.0
+        with:
+          report-json: eslint-report.json
+          only-pr-files: true
+          fail-on-error: true
+          fail-on-warning: false
+          markdown-report-on-step-summary: true
 
   test:
     runs-on: ubuntu-latest
