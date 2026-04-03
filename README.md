@@ -1,6 +1,7 @@
 # mocha-gitlab-reporter
 
 [![npm][npm-badge]][npm-listing]
+[![npm downloads][npm-downloads]][npm-listing]
 
 A GitLab CI compatible JUnit XML reporter for Mocha. Generates test reports that display correctly in GitLab's merge request and pipeline interfaces.
 
@@ -65,10 +66,8 @@ Using a `.mocharc.js` configuration file:
 
 ```javascript
 module.exports = {
-  reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "consoleReporter=spec"
-    ]
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["consoleReporter=spec"],
 };
 ```
 
@@ -94,10 +93,8 @@ Using a `.mocharc.js` configuration file:
 
 ```javascript
 module.exports = {
-  reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "mochaFile=./path_to_your/file.xml"
-    ]
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["mochaFile=./path_to_your/file.xml"],
 };
 ```
 
@@ -156,12 +153,12 @@ The transformations are applied in order, so the output of the first transformat
 You can capture console output and errors:
 
 ```javascript
-it('should report output', function() {
-  this.test.consoleOutputs = ['line 1 of output', 'line 2 of output'];
+it("should report output", function () {
+  this.test.consoleOutputs = ["line 1 of output", "line 2 of output"];
 });
 
-it('should report error', function() {
-  this.test.consoleErrors = ['line 1 of errors', 'line 2 of errors'];
+it("should report error", function () {
+  this.test.consoleErrors = ["line 1 of errors", "line 2 of errors"];
 });
 ```
 
@@ -171,10 +168,8 @@ Using a `.mocharc.js` configuration file:
 
 ```javascript
 module.exports = {
-  reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "outputs=true"
-    ]
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["outputs=true"],
 };
 ```
 
@@ -183,9 +178,9 @@ module.exports = {
 You can attach files and screenshots using the [JUnit Attachments Plugin](https://wiki.jenkins.io/display/JENKINS/JUnit+Attachments+Plugin) format:
 
 ```javascript
-it('should display login page', function() {
+it("should display login page", function () {
   // Your test code
-  this.test.attachments = ['/absolute/path/to/screenshot.png'];
+  this.test.attachments = ["/absolute/path/to/screenshot.png"];
 });
 ```
 
@@ -202,25 +197,25 @@ module.exports = {
 
 ## Configuration Options
 
-| Parameter               | Default              | Effect                                                                                           |
-| ----------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
-| mochaFile               | `test-results.xml`   | Configures the file to write reports to                                                          |
-| includePending          | `false`              | If set to a truthy value pending tests will be included in the report                            |
-| toConsole               | `false`              | If set to a truthy value the produced XML will be logged to the console                          |
-| consoleReporter         | `null`               | Name of a Mocha reporter to also output to console (e.g., `"spec"`, `"dot"`, `"nyan"`)           |
-| outputs                 | `false`              | If set to truthy value will include console output and console error output                      |
-| attachments             | `false`              | If set to truthy value will attach files to report in JUnit Attachments Plugin format            |
-| filePathTransforms      | `null`               | String with pipe-delimited transformations (e.g., `"[{search: '^build/'\| replace: 'src/'}]"`) |
+| Parameter          | Default            | Effect                                                                                         |
+| ------------------ | ------------------ | ---------------------------------------------------------------------------------------------- |
+| mochaFile          | `test-results.xml` | Configures the file to write reports to                                                        |
+| includePending     | `false`            | If set to a truthy value pending tests will be included in the report                          |
+| toConsole          | `false`            | If set to a truthy value the produced XML will be logged to the console                        |
+| consoleReporter    | `null`             | Name of a Mocha reporter to also output to console (e.g., `"spec"`, `"dot"`, `"nyan"`)         |
+| outputs            | `false`            | If set to truthy value will include console output and console error output                    |
+| attachments        | `false`            | If set to truthy value will attach files to report in JUnit Attachments Plugin format          |
+| filePathTransforms | `null`             | String with pipe-delimited transformations (e.g., `"[{search: '^build/'\| replace: 'src/'}]"`) |
 
 ### Results Report Filename Placeholders
 
 Results XML filename can contain placeholders for dynamic values:
 
-| placeholder       | output                           |
-| ----------------- | -------------------------------- |
-| `[hash]`          | MD5 hash of test results XML     |
-| `[suiteFilename]` | Filename of the spec file        |
-| `[suiteName]`     | Name of the first test suite     |
+| placeholder       | output                       |
+| ----------------- | ---------------------------- |
+| `[hash]`          | MD5 hash of test results XML |
+| `[suiteFilename]` | Filename of the spec file    |
+| `[suiteName]`     | Name of the first test suite |
 
 Example:
 
@@ -281,3 +276,4 @@ MIT
 
 [npm-badge]: https://img.shields.io/npm/v/mocha-gitlab-reporter.svg
 [npm-listing]: https://www.npmjs.com/package/mocha-gitlab-reporter
+[npm-downloads]: https://img.shields.io/npm/dm/mocha-gitlab-reporter.svg
