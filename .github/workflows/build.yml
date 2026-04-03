@@ -21,10 +21,12 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-      - name: npm install
-        run: npm install
-      - name: npm ci
-        run: npm run ci
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: quality checks
+        run: |
+          pnpm lint
+          pnpm test
         env:
           CI: true
           MOCHA_VERSION: ${{ matrix.mocha-version }}

@@ -4,10 +4,8 @@
   "description": "A GitLab CI compatible JUnit XML reporter for Mocha. Generates test reports that display correctly in GitLab's merge request and pipeline interfaces.",
   "main": "src/index.js",
   "scripts": {
-    "ci": "npm run lint && npm run test",
     "lint": "eslint \"**/*.js\"",
-    "test": "mocha test --reporter=spec",
-    "tdd": "mocha test --reporter=min --watch"
+    "test": "mocha test --reporter=spec"
   },
   "repository": {
     "type": "git",
@@ -48,5 +46,6 @@
   },
   "peerDependencies": {
     "mocha": ">=2.2.5"
-  }
+  },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }
