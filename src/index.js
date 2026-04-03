@@ -5,7 +5,7 @@ const Base = mocha.reporters.Base;
 const fs = require('node:fs');
 const path = require('node:path');
 const debug = require('debug')('mocha-gitlab-reporter');
-const crypto = require('node:crypto');
+const nodeCrypto = require('node:crypto');
 const stripAnsi = require('strip-ansi');
 const { toXml } = require('./lib/xml-builder');
 const {
@@ -139,7 +139,7 @@ function parseFilePathTransforms(input) {
     parsed = JSON.parse(input);
   } catch (e) {
     // Not valid JSON; rethrow a clearer error for the caller
-    throw new TypeError('filePathTransforms must be valid JSON. Error: ' + e.message);
+    throw new TypeError('filePathTransforms must be valid JSON. Error: ' + e.message, { cause: e });
   }
 
   if (Array.isArray(parsed)) {
@@ -709,7 +709,7 @@ class MochaGitLabReporter {
     let reportFilename = this._options.mochaFile;
 
     if (reportFilename.includes(PLACEHOLDERS.HASH)) {
-      const hash = crypto
+      const hash = nodeCrypto
         .createHash(FILE_CONSTANTS.HASH_ALGORITHM)
         .update(xml, FILE_CONSTANTS.ENCODING)
         .digest(FILE_CONSTANTS.HASH_DIGEST);
@@ -830,7 +830,7 @@ class MochaGitLabReporter {
         stack: error.stack,
       });
       // Re-throw the error so users know the operation failed
-      throw new Error(errorMessage);
+      throw new Error(errorMessage, { cause: error });
     }
   }
 }
