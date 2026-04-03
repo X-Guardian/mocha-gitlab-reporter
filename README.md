@@ -120,22 +120,20 @@ If your test files are built/compiled to a different directory, you can use rege
 
 ```javascript
 module.exports = {
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "filePathTransforms={search: '^build/'| replace: 'src/'}"
-    ]
-});
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["filePathTransforms={search: '^build/'| replace: 'src/'}"],
+};
 ```
 
 #### Multiple Transformations
 
 ```javascript
 module.exports = {
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]"
-    ]
-});
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: [
+    "filePathTransforms=[{search: '^build/'| replace: 'src/'}|{search: '.js$'| replace: '.ts'}]",
+  ],
+};
 ```
 
 This will transform paths like:
@@ -188,11 +186,9 @@ Enable attachments in your reporter options:
 
 ```javascript
 module.exports = {
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "attachments=true"
-    ]
-});
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["attachments=true"],
+};
 ```
 
 ## Configuration Options
@@ -221,11 +217,9 @@ Example:
 
 ```javascript
 module.exports = {
-    reporter: 'mocha-gitlab-reporter',
-    reporterOptions: [
-        "mochaFile=test-results.[hash].xml"
-    ]
-});
+  reporter: "mocha-gitlab-reporter",
+  reporterOptions: ["mochaFile=test-results.[hash].xml"],
+};
 ```
 
 This enables support of parallel execution of multiple `mocha-gitlab-reporter`'s writing test results in separate files.
