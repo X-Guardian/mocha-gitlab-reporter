@@ -1,6 +1,6 @@
 'use strict';
 
-const mocha = require('mocha');
+const mocha = interopRequire(require('mocha'));
 const Base = mocha.reporters.Base;
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,7 +16,6 @@ const {
   ERROR_CODES,
   TRANSFORM_PROPS,
   TIME_CONVERSION,
-  MOCHA_VERSION,
   XML_OPTIONS,
   INVALID_CHARACTERS_REGEX,
 } = require('./constants');
@@ -25,23 +24,42 @@ const {
 // See https://github.com/mochajs/mocha/issues/237
 const GlobalDate = globalThis.Date;
 
-let createStatsCollector;
-let mocha6plus = false;
+/**
+ * Unwrap a module that may be an ES module namespace object.
+ *
+ * Mocha 12 is pure ESM, so `require()` can yield a namespace object rather than the value itself. That value sits under
+ * a named export, under `default`, or (for CommonJS mocha <= 11) is the module itself.
+ * @param {*} module_ - The value returned by `require()`
+ * @param {string} [name] - Preferred named export to unwrap, when the module has one
+ * @returns {*} The unwrapped export
+ */
+function interopRequire(module_, name) {
+  if (module_ && typeof module_ === 'object') {
+    if (name && typeof module_[name] === 'function') {
+      return module_[name];
+    }
+    if (module_.default !== undefined) {
+      return module_.default;
+    }
+  }
+  return module_;
+}
+
+// Mocha 12 is ESM: require() returns a namespace object, so unwrap the named `createStatsCollector` export.
+const createStatsCollector = interopRequire(
+  require(FILE_CONSTANTS.MOCHA_STATS_COLLECTOR_PATH),
+  FILE_CONSTANTS.STATS_COLLECTOR_EXPORT
+);
+
+let mochaVersion;
 
 try {
   const json = JSON.parse(
     fs.readFileSync(path.dirname(require.resolve('mocha')) + FILE_CONSTANTS.PACKAGE_JSON_PATH, FILE_CONSTANTS.ENCODING)
   );
-  const version = json.version;
-  const majorVersion = Number.parseInt(version.split('.')[MOCHA_VERSION.VERSION_INDEX_MAJOR], MOCHA_VERSION.RADIX);
-  if (majorVersion >= MOCHA_VERSION.MIN_FOR_STATS_COLLECTOR) {
-    createStatsCollector = require(FILE_CONSTANTS.MOCHA_STATS_COLLECTOR_PATH);
-    mocha6plus = true;
-  } else {
-    mocha6plus = false;
-  }
+  mochaVersion = json.version;
 } catch (error_) {
-  // best-effort: if mocha package.json can't be read we continue with defaults
+  // best-effort: the version is only exposed for diagnostics, so carry on without it
   console.warn("Couldn't determine Mocha version", error_);
 }
 
@@ -280,17 +298,20 @@ function getGitLabSuiteClassname(test) {
 
 /**
  * GitLab CI JUnit reporter for mocha.js.
+ *
+ * Extends Base rather than calling `Base.call(this, runner)`, which Mocha 12 broke by making Base an ES class.
  * @module mocha-gitlab-reporter
  */
-class MochaGitLabReporter {
+class MochaGitLabReporter extends Base {
   /**
    * @param {EventEmitter} runner - the test runner
    * @param {Object} options - mocha options
    */
   constructor(runner, options) {
-    if (mocha6plus) {
-      createStatsCollector(runner);
-    }
+    // The stats collector must be attached before Base's constructor runs, and no statement may precede super(), so it
+    // is applied in the argument expression.
+    super((createStatsCollector(runner), runner), options);
+
     this._options = configureDefaults(options);
     this._runner = runner;
     this._Date = options?.Date ?? GlobalDate;
@@ -305,9 +326,6 @@ class MochaGitLabReporter {
       return testsuites.at(-1).testsuite;
     }
 
-    // get functionality from the Base reporter
-    Base.call(this, runner);
-
     // If consoleReporter option is set, also run that reporter for console output
     if (this._options.consoleReporter) {
       const reporterName = this._options.consoleReporter;
@@ -319,7 +337,8 @@ class MochaGitLabReporter {
       } else if (isSafeReporterName(reporterName)) {
         // Try to require as a module, but only for safe module names
         try {
-          ConsoleReporter = require(reporterName);
+          // Unwrap ESM default exports, which require() surfaces as a namespace object
+          ConsoleReporter = interopRequire(require(reporterName));
           debug('constructor: Successfully loaded console reporter module:', reporterName);
         } catch (error_) {
           debug('constructor: Could not load console reporter module:', {
@@ -839,3 +858,6 @@ module.exports = MochaGitLabReporter;
 
 // Re-export XML builder for testing
 module.exports.toXml = require('./lib/xml-builder').toXml;
+
+// The resolved mocha version, exposed so tests can assert which mocha was loaded
+module.exports.mochaVersion = mochaVersion;

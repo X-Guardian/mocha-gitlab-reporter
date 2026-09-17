@@ -47,8 +47,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mocha-version: [9, 10, 11]
-        node-version: [20.x, 22.x, 24.x]
+        mocha-version: [10, 11, 12]
+        node-version: [22.x, 24.x, 26.x]
 
     steps:
       - name: Checkout code
@@ -71,3 +71,15 @@ jobs:
         env:
           CI: true
           MOCHA_VERSION: ${{ matrix.mocha-version }}
+
+  test-results:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check test results
+        if: needs.test.result != 'success'
+        run: |
+          echo "Test matrix result: ${{ needs.test.result }}"
+          exit 1

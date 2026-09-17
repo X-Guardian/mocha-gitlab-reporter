@@ -35,6 +35,8 @@ const PLACEHOLDERS = {
 
 /**
  * File operation constants
+ * @property {string} STATS_COLLECTOR_EXPORT - Named export holding the stats collector, used to unwrap the module
+ * namespace object returned by ESM builds of mocha
  */
 const FILE_CONSTANTS = {
   ENCODING: 'utf-8',
@@ -42,6 +44,7 @@ const FILE_CONSTANTS = {
   HASH_DIGEST: 'hex',
   PACKAGE_JSON_PATH: '/package.json',
   MOCHA_STATS_COLLECTOR_PATH: 'mocha/lib/stats-collector',
+  STATS_COLLECTOR_EXPORT: 'createStatsCollector',
 };
 
 /**
@@ -71,15 +74,6 @@ const TIME_CONVERSION = {
 };
 
 /**
- * Mocha version requirements
- */
-const MOCHA_VERSION = {
-  MIN_FOR_STATS_COLLECTOR: 6,
-  VERSION_INDEX_MAJOR: 0,
-  RADIX: 10,
-};
-
-/**
  * XML formatting options
  */
 const XML_OPTIONS = {
@@ -102,7 +96,6 @@ module.exports = {
   ERROR_CODES,
   TRANSFORM_PROPS,
   TIME_CONVERSION,
-  MOCHA_VERSION,
   XML_OPTIONS,
   INVALID_CHARACTERS_REGEX,
 };
