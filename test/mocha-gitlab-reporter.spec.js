@@ -2,8 +2,9 @@
 
 const Reporter = require('../src/index');
 
+// Resolves to the mocha selected by test/support/mocha-version.js
+const Mocha = require('./support/mocha-version').requireMocha();
 const mochaVersion = process.env.MOCHA_VERSION || '';
-const Mocha = require('mocha' + mochaVersion);
 const Runner = Mocha.Runner;
 const Suite = Mocha.Suite;
 const Test = Mocha.Test;
@@ -373,11 +374,7 @@ describe('mocha-junit-reporter', function () {
       expect(reporter._testsuites[1].testsuite[0]._attr.name).to.equal('failing beforeAll');
       expect(reporter._testsuites[1].testsuite[1].testcase).to.have.lengthOf(2);
 
-      let failureMessage = '"before all" hook: failing hook';
-      if (!['2', '3', '4', '5'].includes(mochaVersion)) {
-        // newer versions of Mocha include the name of the test in the message
-        failureMessage += ' for "test 1"';
-      }
+      const failureMessage = '"before all" hook: failing hook for "test 1"';
       expect(reporter._testsuites[1].testsuite[1].testcase[0]._attr.name).to.equal(failureMessage);
       expect(reporter._testsuites[1].testsuite[1].testcase[1].failure._attr.message).to.equal('error in before');
       expect(reporter._testsuites[2].testsuite[0]._attr.name).to.equal('good suite');
@@ -413,6 +410,36 @@ describe('mocha-junit-reporter', function () {
         /AssertionError: expected {} to deeply equal {\s*missingProperty:\s*true\s*}\n(?:\s* at .*?\n)*\n\s*\+ expected - actual\n+\s*-{}\n\s*\+{\n\s*\+\s*"missingProperty":\s*true\n\s*\+}[\s\S]*/
       );
       done();
+    });
+  });
+
+  describe('mocha version compatibility', function () {
+    it('loads the mocha version under test', function () {
+      // Guards the test harness itself: the reporter must resolve the same mocha the
+      // specs run against, otherwise a matrix leg silently tests the default version.
+      const loaded = require('../src/index').mochaVersion;
+
+      expect(loaded).to.equal(require('mocha/package.json').version);
+
+      if (mochaVersion) {
+        expect(loaded.split('.')[0]).to.equal(mochaVersion);
+      }
+    });
+
+    it('extends Base so it works with mocha 12\'s class-based reporters', function () {
+      // Mocha 12 made Base an ES class: `Base.call(this, runner)` throws
+      // "Class constructor Base cannot be invoked without 'new'".
+      const reporter = createReporter({ mochaFile: 'test/output/version.xml' });
+
+      expect(reporter).to.be.instanceOf(Mocha.reporters.Base);
+    });
+
+    it('attaches the stats collector to the runner', function () {
+      // Mocha 12 is ESM, so require() yields a namespace object; calling it
+      // directly throws "createStatsCollector is not a function".
+      const reporter = createReporter({ mochaFile: 'test/output/version.xml' });
+
+      expect(reporter.runner.stats).to.be.an('object');
     });
   });
 
@@ -635,11 +662,7 @@ describe('mocha-junit-reporter', function () {
         expect(reporter._testsuites[0].testsuite[0]._attr.name).to.equal('Root Suite');
         expect(reporter._testsuites[0].testsuite[1].testcase).to.have.lengthOf(1);
 
-        let expectedName = 'test';
-        if (['2', '3'].includes(mochaVersion)) {
-          expectedName = ' ' + expectedName;
-        }
-        expect(reporter._testsuites[0].testsuite[1].testcase[0]._attr.name).to.equal(expectedName);
+        expect(reporter._testsuites[0].testsuite[1].testcase[0]._attr.name).to.equal('test');
         done();
       });
     });

@@ -14,6 +14,13 @@ GitLab CI has specific requirements for JUnit XML format to properly display tes
 - Proper classname/name structure that GitLab recognizes
 - Full support for attachments (screenshots, logs, etc.)
 
+## Requirements
+
+|         | Supported        |
+| ------- | ---------------- |
+| Mocha   | 10, 11, 12       |
+| Node.js | 22.12.0 or later |
+
 ## Installation
 
 ```shell
